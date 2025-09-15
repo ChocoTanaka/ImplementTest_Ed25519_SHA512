@@ -4,52 +4,51 @@ public class TestSighner {
 
 	public static void main(String[] args) {
 		
-		/*
-        // 例: 32バイトの秘密鍵
-        int[] prikeyint = {
-        		254, 165, 104, 138, 94, 135, 73, 55, 170, 104,
-        		105, 97, 218, 182, 60, 80, 113, 16, 187, 100,
-        		126, 230, 174, 12, 186, 100, 231, 231, 28, 29,
-        		251, 244
-        		};
-        byte[] privKey = new byte[prikeyint.length];
-        for (int i = 0; i <prikeyint.length; i++) {
-            privKey[i] = (byte)prikeyint[i]; // キャストでbyteに変換
-        }
-
-        // 例: messageBuffer を外部で作成
-        int[] messageint = {73, 214, 225, 206, 39, 106, 133, 183, 14, 175, 229, 35, 73, 170, 204, 163, 137, 48, 46, 122, 151, 84, 188, 241, 34, 30, 121, 73, 79, 198, 101, 164, 1, 152, 84, 65, 96, 109, 0, 0, 0, 0, 0, 0, 56, 226, 30, 253, 20, 0, 0, 0, 152, 154, 124, 153, 141, 134, 177, 90, 85, 50, 156, 158, 66, 100, 0, 116, 84, 64, 249, 169, 122, 120, 103, 94, 0, 0, 1, 0, 0, 0, 0, 0, 206, 139, 160, 103, 46, 33, 192, 114, 0, 225, 245, 5, 0, 0, 0, 0};
-        
-        byte[] messageBuffer = new byte[messageint.length];
-        for (int i = 0; i <messageint.length; i++) {
-        	messageBuffer[i] = (byte)messageint[i]; // キャストでbyteに変換
-        }
-*/
-		String privstr = "ABF4CF55A2B3F742D7543D9CC17F50447B969E6E06F5EA9195D428AB12B7318D";
+		String privstr = "6AA6DAD25D3ACB3385D5643293133936CDDDD7F7E11818771DB1FF2F9D3F9215";
 		byte[] privKey = hexStringToByteArray(privstr);
 		
 		//System.out.print(privKey);
 		System.out.println("length:" +privKey.length);
 		//true:32
 		
+		String PubKeystr = "F7BBE3BB4DBF9698122DA02EB8A6EDE55F1EF90D0C64819E8A792231A2A0B143";
+		byte[] pubKey = hexStringToByteArray(PubKeystr);
 		
-		String datastr = "8CE03CD60514233B86789729102EA09E867FC6D964DEA8C2018EF7D0A2E0E24BF7E348E917116690B9";
+		String datastr = "E4A92208A6FC52282B620699191EE6FB9CF04DAF48B48FD542C5E43DAA9897763A199AAA4B6F10546109F47AC3564FADE0";
 		byte[] messageBuffer = hexStringToByteArray(datastr);
 		
 		System.out.println("length:" +messageBuffer.length);
 		//true: written length
 		
+		String Signaturestr = "F21E4BE0A914C0C023F724E1EAB9071A3743887BB8824CB170404475873A827B301464261E93700725E8D4427A3E39D365AFB2C9191F75D33C6BE55896E0CC00";
+		byte[] expectedSignature = hexStringToByteArray(Signaturestr);
 		
-        Ed25519SignerJC signer = new Ed25519SignerJC(privKey,(short)0,(short)32);
+		// --- キーペア生成 ---
+        byte[] sk = new byte[64]; // Secret key: 前半32バイトがprivate、後半32バイトがpublic
+        System.arraycopy(privKey, 0, sk, 0, 32);
+
+        byte[] pk = new byte[32]; // Public key
+        TweetNacl.crypto_sign_keypair(pk, sk, true);
+        
+        System.out.println("length:" + pk.length);
+        
+     // --- 公開鍵チェック ---
+        System.out.println("Generated Public Key: " +byteArrayToHexString(pk));
+        System.out.println("Matches expected? " + java.util.Arrays.equals(pk, pubKey));
+		
+        byte[] signed = new byte[64 + messageBuffer.length]; // 署名 + データ
+        TweetNacl.crypto_sign(signed, (short)0, messageBuffer, messageBuffer.length, sk);
+
+        // --- 署名部分とデータ部分に分けてチェック ---
         byte[] signature = new byte[64];
+        byte[] signedData = new byte[messageBuffer.length];
+        System.arraycopy(signed, 0, signature, 0, 64);
+        System.arraycopy(signed, 64, signedData, 0, messageBuffer.length);
 
-        signer.sign(privKey, (short)0, (short)messageBuffer.length, messageBuffer, signature, (short)0);
+        System.out.println("Generated Signature: " + byteArrayToHexString(signature));
+        System.out.println("Matches expected signature? " + java.util.Arrays.equals(signature, expectedSignature));
 
-        System.out.print("Signature: ");
-        for (byte b : signature) {
-            System.out.printf("%02X", b);
-        }
-        System.out.print("len:"+signature.length);
+        System.out.println("Signed data matches original? " + java.util.Arrays.equals(signedData, messageBuffer));
     }
 	
 	
@@ -69,4 +68,20 @@ public class TestSighner {
 	    }
 	    return out;
 	}
+	
+	public static String byteArrayToHexString(byte[] bytes) {
+        if (bytes == null) {
+            return null;
+        }
+        
+        char[] hexChars = new char[bytes.length * 2];
+        for (int i = 0; i < bytes.length; i++) {
+            int v = bytes[i] & 0xFF;
+            hexChars[i * 2] = HEX_CHARS[v >>> 4];
+            hexChars[i * 2 + 1] = HEX_CHARS[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+	 private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
+	
 }
