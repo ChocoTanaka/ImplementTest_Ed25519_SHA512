@@ -3,36 +3,39 @@ package com.example.sighner;
 import java.security.SecureRandom;
 
 final class UInt64 {
-	private UInt64() {} // コンストラクタを private にしてインスタンス禁止
-	
-    // コピー (dst = src)
+    private UInt64() {} // static only
+
     static void copy(int[] src, int[] dst) {
-        dst[0] = src[0]; // hi
-        dst[1] = src[1]; // lo
+        dst[0] = src[0]; dst[1] = src[1];
     }
 
-    // 加算 (out = a + b)
-    static void add(int[] a, int[] b, int[] out) {
-        long lo = (a[1] & 0xffffffffL) + (b[1] & 0xffffffffL);
-        long hi = (a[0] & 0xffffffffL) + (b[0] & 0xffffffffL) + (lo >>> 32);
-        out[0] = (int) hi;
-        out[1] = (int) lo;
-    }
-    
-    
-
-    // XOR (out = a ^ b)
     static void xor(int[] a, int[] b, int[] out) {
         out[0] = a[0] ^ b[0];
         out[1] = a[1] ^ b[1];
     }
 
-    // 右シフト (out = x >>> n)
+    static void and(int[] a, int[] b, int[] out) {
+        out[0] = a[0] & b[0];
+        out[1] = a[1] & b[1];
+    }
+
+    static void not(int[] a, int[] out) {
+        out[0] = ~a[0]; out[1] = ~a[1];
+    }
+
+    // out = a + b   (64-bit)
+    static void add(int[] a, int[] b, int[] out) {
+        long lo = (a[1] & 0xFFFFFFFFL) + (b[1] & 0xFFFFFFFFL);
+        long carry = (lo >>> 32);
+        out[1] = (int) lo;
+        long hi = (a[0] & 0xFFFFFFFFL) + (b[0] & 0xFFFFFFFFL) + carry;
+        out[0] = (int) hi;
+    }
+
+    // out = a + b (in-place allowed: out may be a or b)
+    // shr: logical right shift by n (0<=n<64)
     static void shr(int[] x, int n, int[] out) {
-        if (n == 0) {
-            copy(x, out);
-            return;
-        }
+        if (n == 0) { copy(x,out); return; }
         if (n < 32) {
             out[1] = (x[1] >>> n) | (x[0] << (32 - n));
             out[0] = x[0] >>> n;
@@ -41,12 +44,8 @@ final class UInt64 {
             out[0] = 0;
         }
     }
-    
     static void shl(int[] x, int n, int[] out) {
-        if (n == 0) {
-            copy(x, out);
-            return;
-        }
+        if (n == 0) { copy(x,out); return; }
         if (n < 32) {
             out[0] = (x[0] << n) | (x[1] >>> (32 - n));
             out[1] = x[1] << n;
@@ -56,16 +55,14 @@ final class UInt64 {
         }
     }
 
- // 右回転 (hi,lo) >>> n | (hi,lo) << (64-n)
- 	static void rotr(int[] in, int n, int[] out) {
- 	    int[] t1 = new int[2];
- 	    int[] t2 = new int[2];
-
- 	    shr(in, n, t1);         // >>> n
- 	    shl(in, 64 - n, t2);    // <<< (64-n)
- 	    out[0] = t1[0] | t2[0];
- 	    out[1] = t1[1] | t2[1];
- 	}
+    static void rotr(int[] x, int n, int[] out) {
+        int[] t1 = new int[2];
+        int[] t2 = new int[2];
+        shr(x, n, t1);
+        shl(x, 64 - n, t2);
+        out[0] = t1[0] | t2[0];
+        out[1] = t1[1] | t2[1];
+    }
 }
 
 
@@ -329,7 +326,6 @@ public final class TweetNacl {
 	    out[1] = r19[1] ^ r61[1] ^ s6[1];
 	}
 	
-
 	//keyPair
 	public static int  crypto_sign_keypair(byte [] pk, byte [] sk, boolean seeded) {
 		byte [] d = new byte[64];
@@ -1208,20 +1204,14 @@ public final class TweetNacl {
 			n.getRow(i, ni);
 			t.setRow(i, ni);
 		}
-		dumpMatrix("after copy", t);
-		
+
 		car25519Matrix(t);
-		dumpMatrix("after car1", t);
 		car25519Matrix(t);
-		dumpMatrix("after car2", t);
 		car25519Matrix(t);
-		dumpMatrix("after car3", t);
+
 		
 		for(short j = 0; j<2; j++) {
 			
-			
-			int[]m0 = new int[2]; 
-			m.getRow((short)0,m0);
 			int[]t0 = new int[2]; 
 			t.getRow((short)0,t0);
 			int[]m14 = new int[2]; 
@@ -1231,9 +1221,24 @@ public final class TweetNacl {
 			int[]m15 = new int[2]; 
 			m.getRow((short)15,m15);
 			
+			// borrow 計算用
+			int lo = t0[0]; // 下位 limb
+			int hi = t0[1]; // 上位 limb
+
+			// 下位 limb で 0xffed を引く
+			int new_lo = lo - 0xffed;
+
+			// borrow が発生したら上位 limb に伝播
+			int borrow_1 = (new_lo >> 16) & 1;  // new_lo は int なので上位16bitを取り出す
+			new_lo &= 0xFFFF;                 // 下位16bitだけにマスク
+
+			// 上位 limb に borrow を加算
+			int new_hi = hi + borrow_1;
+
+			// 計算結果を m の 0 行に格納
 			int[] borrow1 = new int[2];
-			int[] temp_values1 = new int[]{m0[0],t0[0], 0xffed}; // 上位は0, 借りは3番目に入れる
-		    diffWithBorrow(temp_values1, borrow1);
+			borrow1[0] = new_lo;
+			borrow1[1] = new_hi;
 			m.setRow((short)0, borrow1);
 			
 			for(i = 1; i < 15; i++) {
@@ -1241,15 +1246,15 @@ public final class TweetNacl {
 			    int[] mi_1 = new int[2];    // m の i-1 行
 			    int[] ti = new int[2];      // t の i 行
 
-			    m.getRow((short)i, mi);
+			    m.getRow(i, mi);
 			    m.getRow((short)(i-1), mi_1);
-			    t.getRow((short)i, ti);
+			    t.getRow(i, ti);
 
 			    // 下位 limb の借り計算
 			    int[] borrow = new int[2];
 			    // ti - 0xffff - ((mi_1 >> 16)&1) を diffWithBorrow で計算
 			    int borrow_in = (mi_1[1] >>> 16) & 1;
-			    int[] temp_values2 = new int[]{ti[0], ti[1], borrow_in}; // 上位は0, 借りは3番目に入れる
+			    int[] temp_values2 = new int[]{ti[0], 0xffff, borrow_in}; // 上位は0, 借りは3番目に入れる
 			    diffWithBorrow(temp_values2, borrow);
 
 			    // 計算結果を m の i 行に格納
@@ -1258,25 +1263,25 @@ public final class TweetNacl {
 			    // mi_1 の下位 limb をマスク
 			    mi_1[0] &= 0xFFFF;
 			    m.setRow((short)(i-1), mi_1);
+			    
 			}
 
 			int[] borrow_last = new int[2];
 			int borrow_in = (m14[1] >>> 16) & 1;
-			int[] temp_values = new int[]{t15[0], 0, borrow_in};
+			int[] temp_values = new int[]{t15[0], 0x7fff, borrow_in};
 			diffWithBorrow(temp_values, borrow_last);
 			m.setRow((short)15, borrow_last);
-
+			m14[0] &= 0xFFFF;  // 下位 limb をマスク
+			m.setRow((short)14, m14);
+			
 			// 最終 borrow フラグ
 			b = (short)((borrow_last[0] >>> 16) & 1);
-			
-				dumpMatrix("before sel25519", t);
+				
 			
 				sel25519Matrix(t, m, 1-b);
 				
 				dumpMatrix("after sel25519", t);
-				m14[0] &= 0xFFFF;  // 下位 limb をマスク
-				m.setRow((short)14, m14);
-			
+				
 		}
 		
 			for (i = 0; i < 8; i++) {
@@ -1303,7 +1308,12 @@ public final class TweetNacl {
 	// pRow, qRow: int[32] (16 limb × hi-lo)
 	// b: 0 または 1
 	private static void sel25519Matrix(Matrix pRow, Matrix qRow, int b) {
-		int mask = -(b & 1); // b==0 -> 0xFFFFFFFF, b==1 -> 0x00000000
+		
+		System.out.println(b);
+		
+		int mask = -b;  //b=0;do nothing, b=1;swap;
+		
+		
 
 	    for (short i = 0; i < 16; i++) {
 	        int[] pVals = new int[2];
@@ -1322,7 +1332,7 @@ public final class TweetNacl {
 	        int t_hi = mask & (pVals[1] ^ qVals[1]);
 	        pVals[1] ^= t_hi;
 	        qVals[1] ^= t_hi;
-
+	        
 	        // 計算結果を戻す
 	        pRow.setRow(i, pVals);
 	        qRow.setRow(i, qVals);
