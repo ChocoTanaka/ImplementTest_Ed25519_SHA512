@@ -96,15 +96,18 @@ final class Matrix {
     }
     
  // 1行（hi/lo）をコピーする
-    void copyRowFrom(Matrix src, short srcRow, short dstRow) {
-        for (short c = 0; c < defcol; c++) {
-            set(dstRow, c, src.get(srcRow, c));
-        }
+    
+    //a[i+j] = b[i]; => a.copyRowFrom(i+j,i,b);
+    
+    void copyRowFrom(short dstRow, short srcRow, Matrix src) {
+    		int[]set = new int[2];    
+    		src.getRow(srcRow, set);
+        this.setRow(dstRow, set);
     }
 }
 
 public final class TweetNacl {
-	
+		
 	private final static byte iv[] = {
 			0x6a,0x09,(byte) 0xe6,0x67,(byte) 0xf3,(byte) 0xbc,(byte) 0xc9,0x08,
 			(byte) 0xbb,0x67,(byte) 0xae,(byte) 0x85,(byte) 0x84,(byte) 0xca,(byte) 0xa7,0x3b,
@@ -139,9 +142,9 @@ public final class TweetNacl {
 	
 	private static final int []  Yv = new int [] {
 			0x0000, 0x6658, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 
-			0x0000, 0x6666, 0x0000, 0x6666, 0x6666, 0x0000, 0x0000, 0x6666,
-			0x0000, 0x6666, 0x0000, 0x6666, 0x6666, 0x0000, 0x0000, 0x6666,
-			0x0000, 0x6666, 0x0000, 0x6666, 0x6666, 0x0000, 0x0000, 0x6666
+			0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666,
+			0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666,
+			0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666
 	};
 	
 	// X と Y を hi/lo に分けて Matrix にセット
@@ -158,30 +161,22 @@ public final class TweetNacl {
 	}
 	
 	
-	private static final int [] gf0_v = new int[] {
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000
-	};
-	
-	private static final int [] gf1_v = new int [] {
-			0x0000,0x0001,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000
-	};
-	
 	// X と Y を hi/lo に分けて Matrix にセット
 	private static final Matrix gf0_MATRIX = new Matrix((short)16, (short)2);
 	private static final Matrix gf1_MATRIX = new Matrix((short)16, (short)2);
 
 	static {
 		for(short i=0; i<16; i++){
-	    gf0_MATRIX.set(i, (short)0, gf0_v[i*2]);     // hi
-	    gf0_MATRIX.set(i, (short)1, gf0_v[i*2 + 1]); // lo
-	    gf1_MATRIX.set(i, (short)0, gf1_v[i*2]);     // hi
-	    gf1_MATRIX.set(i, (short)1, gf1_v[i*2 + 1]); // lo
+	    gf0_MATRIX.set(i, (short)0, 0x0000);     // hi
+	    gf0_MATRIX.set(i, (short)1, 0x0000); // lo
+	    if(i == 0) {
+		    gf1_MATRIX.set(i, (short)0, 0x0000);     // hi
+		    gf1_MATRIX.set(i, (short)1, 0x0001); // lo
+	    }else {
+		    gf1_MATRIX.set(i, (short)0, 0x0000);     // hi
+		    gf1_MATRIX.set(i, (short)1, 0x0000); // lo
+	    }
+
 		};
 	}
 	
@@ -244,17 +239,22 @@ public final class TweetNacl {
 	    out[0]=hi; out[1]=lo;
 	}
 
-	static void ts64(byte[] x, int off, int[] u) {
-		// write big-endian 8 bytes from hi/lo
-		int hi = u[0], lo = u[1];
-		x[off+0] = (byte) (hi >>> 24);
-		x[off+1] = (byte) (hi >>> 16);
-		x[off+2] = (byte) (hi >>> 8);
-		x[off+3] = (byte) (hi);
-		x[off+4] = (byte) (lo >>> 24);
-		x[off+5] = (byte) (lo >>> 16);
-		x[off+6] = (byte) (lo >>> 8);
-		x[off+7] = (byte) (lo);
+	static void ts64(byte[] x, int off, Matrix uMatrix) {
+	    int[] uRow = new int[2];
+	    uMatrix.getRow((short)0, uRow);
+
+	    int hi = uRow[0];
+	    int lo = uRow[1];
+
+	    // big-endian で書き込み
+	    x[off+0] = (byte)(hi >>> 24);
+	    x[off+1] = (byte)(hi >>> 16);
+	    x[off+2] = (byte)(hi >>> 8);
+	    x[off+3] = (byte)(hi);
+	    x[off+4] = (byte)(lo >>> 24);
+	    x[off+5] = (byte)(lo >>> 16);
+	    x[off+6] = (byte)(lo >>> 8);
+	    x[off+7] = (byte)(lo);
 	}
 
 	//private static long R(long x,int c){ return (x >>> c) | (x << (64 - c)); }
@@ -396,10 +396,14 @@ public final class TweetNacl {
 		n = 256-128*(n<112?1:0);
 		x[n-9] = (byte) (b >>> 61);
 		
-		long bitlen = ((long)b) << 3;
-		int[] u = new int[2];
-		u[0] = (int)((bitlen >>> 32) & 0xFFFFFFFF); // hi
-		u[1] = (int)(bitlen & 0xFFFFFFFF); 
+		int bitlen = b << 3;  // b はバイト数 → ビット数に変換
+
+		int[] uRow = new int[2];
+		uRow[0] = 0;          // hi は不要（上位32bitは常に0）
+		uRow[1] = bitlen;     // lo にセット
+
+		Matrix u = new Matrix((short)1, (short)2);
+		u.setRow((short)0, uRow);
 		
 		ts64(x,n-8,u);
 		crypto_hashblocks(h, x,0,x.length, n);
@@ -408,13 +412,8 @@ public final class TweetNacl {
 
 		return 0;
 	}
-	public static int crypto_hash(byte [] out, byte [] m, int n) {
-		return crypto_hash(out, m,0,m.length, n);
-	}
-	public static int crypto_hash(byte [] out, byte [] m) {
-		return crypto_hash(out, m, m!=null? m.length : 0);
-	}
-	
+
+	//suspicious
 	// TBD... long length n
 	///int crypto_hashblocks(byte [] x, byte [] m, long n)
 	private static int crypto_hashblocks(byte [] x, byte [] m,final int moff,final int mlen, int n)
@@ -434,18 +433,21 @@ public final class TweetNacl {
 				a.getRow(i, arow);
 			    dl64(x, (short)(8 * i), zrow);
 			    dl64(x, (short)(8 * i), arow);
+			    z.setRow(i, zrow);
+				a.setRow(i, arow);
 			}
 
 			int moffset = moff;
 			
-			int[] a4 = { a.get((short)4,(short)0), a.get((short)4,(short)1) };
-			int[] a5 = { a.get((short)5,(short)0), a.get((short)5,(short)1) };
-			int[] a6 = { a.get((short)6,(short)0), a.get((short)6,(short)1) };
-			int[] b7 = { b.get((short)7,(short)0), b.get((short)7,(short)1) };
+			
 			int[] a0 = { a.get((short)0,(short)0), a.get((short)0,(short)1) };
 			int[] a1 = { a.get((short)1,(short)0), a.get((short)1,(short)1) };
 			int[] a2 = { a.get((short)2,(short)0), a.get((short)2,(short)1) };
 			int[] b3 = { b.get((short)3,(short)0), b.get((short)3,(short)1) };
+			int[] a4 = { a.get((short)4,(short)0), a.get((short)4,(short)1) };
+			int[] a5 = { a.get((short)5,(short)0), a.get((short)5,(short)1) };
+			int[] a6 = { a.get((short)6,(short)0), a.get((short)6,(short)1) };
+			int[] a7 = { a.get((short)7,(short)0), a.get((short)7,(short)1) };
 			
 			
 			
@@ -469,8 +471,10 @@ public final class TweetNacl {
 				}
 				
 				for (i = 0; i < 80; i ++) {
+					int[] b7 = { b.get((short)7,(short)0), b.get((short)7,(short)1) };
 					for (j = 0; j < 8; j ++) {
-						b.copyRowFrom(a,j,j);  // b[j] に a[j] をコピー
+						b.copyRowFrom(j,j,a);  // b[j] = a[j]
+						//a[i+j] = b[i]; => a.copyRowFrom(i+j,i,b);
 					}
 					
 					K_i[0] = K.get((short)i, (short)0);
@@ -494,9 +498,8 @@ public final class TweetNacl {
 				    // t = a[7] + Sigma1(a[4]) + Ch(a[4],a[5],a[6]) + K[i] + w[i%16];
 				    Sigma1(a4, tmp1);        // tmp1 = Sigma1(a[4])
 				    Ch(a4, a5, a6, tmp2); // tmp2 = Ch(a[4],a[5],a[6])
-				    add64(tmp1, tmp2, t64);           // t64 = Sigma1 + Ch
-				    add64(t64, K_i, t64);     // t64 += K[i]
-				    add64(t64, w_i, t64);
+				    add64(a7,tmp1, tmp2, t64);           // t64 = a[7] + Sigma1 + Ch
+				    add64(t64,K_i, w_i, t64);		// t64 += K[i] + w[i]
 					
 					
 					// Ch(a[4], a[5], a[6])
@@ -508,38 +511,41 @@ public final class TweetNacl {
 					// Maj(a[0], a[1], a[2])
 					Maj(a0, a1, a2, tmp2);
 					
-					add64(t64, tmp1, tmp1);           // tmp1 = t + Sigma0
-				    add64(tmp1, tmp2, b7);   // b7 = tmp1 + Maj
+					add64(t64, tmp1, tmp2,b7);           // b7 = t + Sigma0 + Maj
+
 					
 
 					add64(b3,t64,b3);
-					b.set((short)3, (short)0, b3[0]);
-					b.set((short)3, (short)1, b3[1]);
+					b.setRow((short)3,b3);
+					b.setRow((short)7, b7);
+					
 					
 					for (j = 0; j < 8; j ++) {
-						a.copyRowFrom(b, (short)((j+1)%8), j);
+						a.copyRowFrom((short)((j+1)%8),j, b);
+						//a[i+j] = b[i]; => a.copyRowFrom(i+j,i,b);
 					}
 					
 					if (i%16 == 15) {
 						for (j = 0; j < 16; j ++) {
-							w_j116[0] = w.get((short)((j+1)%16),(short)0);
-							w_j116[1] = w.get((short)((j+1)%16),(short)1);
-							w_j1416[0]= w.get((short)((j+14)%16),(short)0);
-							w_j1416[1] =w.get((short)((j+14)%16),(short)1);
-							w_j916[0]= w.get((short)((j+9)%16),(short)0);
-							w_j916[1] = w.get((short)((j+9)%16),(short)1);
+							short j116 = (short)((j+1)%16);
+							short j1416 = (short)((j+14)%16);
+							short j916 = (short)((j+9)%16);
+							
+							w_j116[0] = w.get(j116,(short)0);
+							w_j116[1] = w.get(j116,(short)1);
+							w_j1416[0]= w.get(j1416,(short)0);
+							w_j1416[1] =w.get(j1416,(short)1);
+							w_j916[0]= w.get(j916,(short)0);
+							w_j916[1] = w.get(j916,(short)1);
 							w_j[0] = w.get((short)j,(short)0);
 							w_j[1] = w.get((short)j,(short)1);
 							
 							sigma0(w_j116,tmp1);
 							sigma1(w_j1416,tmp2);
-							add64(tmp1,tmp2,tmp1); //tmp = sigma0+sigma1
-							add64(tmp1,w_j916,w_j);//w_j = w_j916 + tmp
+							add64(tmp1,tmp2,w_j916,w_j); //tmp = sigma0+sigma1+w_j916
 							
 							// 結果を Matrix に書き戻す
-						    w.set((short)j, (short)0, w_j[0]);
-						    w.set((short)j, (short)1, w_j[1]);
-							
+						    w.setRow((short)j,w_j);							
 						}
 					}	
 				}
@@ -554,8 +560,7 @@ public final class TweetNacl {
 					z_i[1] = z.get((short)(i % 16),(short)1);
 					add64(a_i,z_i,tmp);//a[i] +=z[i];
 					//z[i] = a[i]
-					z.set(i, (short)0, tmp[0]);
-					z.set(i, (short)1, tmp[1]);
+					z.setRow(i,tmp);
 					
 				}
 
@@ -565,17 +570,30 @@ public final class TweetNacl {
 
 			for (i = 0; i < 8; i ++) {
 				z.getRow(i, zrow);
-				ts64(x,8*i, zrow);
+				Matrix zr = new Matrix((short)1,(short)2);
+				zr.setRow((short)0, zrow);
+				ts64(x,8*i, zr);
 			}
 			return n;
 	}
 	
 	// x + y -> out (64bit)
 	static void add64(int[] x, int[] y, int[] out) {
-	    long loSum = (x[1] & 0xFFFFFFFFL) + (y[1] & 0xFFFFFFFFL);
-	    long carry = loSum >>> 32;
-	    out[1] = (int) loSum;
-	    out[0] = x[0] + y[0] + (int) carry;
+		int lo = (x[1] & 0xFFFF) + (y[1] & 0xFFFF);
+	    int hi = (x[1] >>> 16) + (y[1] >>> 16);
+
+	    if ((lo & 0x10000) != 0) { // 16bit を超えたら carry
+	        lo &= 0xFFFF;
+	        hi++;
+	    }
+
+	    int loResult = (hi << 16) | lo;
+
+	    int carry32 = (hi >>> 16); // hi の繰り上がり
+	    int hiResult = x[0] + y[0] + carry32;
+
+	    out[1] = loResult;
+	    out[0] = hiResult;
 	}
 
 	// x + y + z -> out (64bit)
@@ -585,9 +603,6 @@ public final class TweetNacl {
 	    add64(tmp, z, out);
 	}
 	
-	public static int crypto_hashblocks(byte [] x, byte [] m, int n) {
-		return crypto_hashblocks(x, m,0,m.length, n);
-	}
 	private static void scalarbase(Matrix[] p, byte[] s,final int soff,final int slen)
 	{
 		
@@ -616,14 +631,14 @@ public final class TweetNacl {
 		qMatrixes[3] = q3;
 		
 
-		set25519(qMatrixes[0],X_MATRIX);
-		set25519(qMatrixes[1],Y_MATRIX);
-		set25519(qMatrixes[2],gf1_MATRIX);
+		set25519_M(qMatrixes[0],X_MATRIX);
+		set25519_M(qMatrixes[1],Y_MATRIX);
+		set25519_M(qMatrixes[2],gf1_MATRIX);
 		M_Matrix_M(qMatrixes[3], X_MATRIX, Y_MATRIX);
 		scalarmult(p,qMatrixes, s,soff,slen);
 	}
 	
-	private static void set25519(Matrix r, Matrix a)
+	private static void set25519_M(Matrix r, Matrix a)
 	{
 		int[] tmp = new int[2];
 	    for (short i = 0; i < 16; i++) {
@@ -631,15 +646,17 @@ public final class TweetNacl {
 	        r.setRow(i, tmp);        // hi/lo をそのまま r の i 行にセット
 	    }
 	}
-	
+		
 	private static void scalarmult(Matrix[] p, Matrix[] q, byte[] s,final int soff,final int slen)
 	{
 		
-		set25519(p[0],gf0_MATRIX);
-		set25519(p[1],gf1_MATRIX);
-		set25519(p[2],gf1_MATRIX);
-		set25519(p[3],gf0_MATRIX);
+		set25519_M(p[0],gf0_MATRIX);
+		set25519_M(p[1],gf1_MATRIX);
+		set25519_M(p[2],gf1_MATRIX);
+		set25519_M(p[3],gf0_MATRIX);
 
+		System.out.println(util.HexUtil.byteArrayToHexString(s));
+		
 		for (int i = 255;i >= 0;--i) {
 			byte b = (byte) ((s[i/8+soff] >> (i&7))&1);
 
@@ -664,6 +681,7 @@ public final class TweetNacl {
 			
 	}
 
+
 	private static void add(Matrix[] p, Matrix[] q)
 	{
 		short col = (short)2;
@@ -676,17 +694,27 @@ public final class TweetNacl {
 		Matrix f = new Matrix((short)16,col);
 		Matrix g = new Matrix((short)16,col);
 		Matrix h = new Matrix((short)16,col);
+		
+		Matrix p0 = p[0];
+		Matrix p1 = p[1];
+		Matrix p2 = p[2];
+		Matrix p3 = p[3];
+		
+		Matrix q0 = q[0];
+		Matrix q1 = q[1];
+		Matrix q2 = q[2];
+		Matrix q3 = q[3];
 
 
-		Z_Matrix(a, p[1], p[0]);
-		Z_Matrix(t, q[1], q[0]);
+		Z_Matrix(a, p1, p0);
+		Z_Matrix(t, q1, q0);
 		M_Matrix_M(a,a,t);
-		A_Matrix(b, p[0], p[1]);
-		A_Matrix(t, q[0], q[1]);
+		A_Matrix(b, p0, p1);
+		A_Matrix(t, q0, q1);
 		M_Matrix_M(b,b,t);
-		M_Matrix_M(c, p[3], q[3]);
+		M_Matrix_M(c, p3, q3);
 		M_Matrix_M(c, c,  D2_MATRIX);
-		M_Matrix_M(d, p[2], q[2]);
+		M_Matrix_M(d, p2, q2);
 		
 		A_Matrix(d, d, d);
 		Z_Matrix(e, b, a);
@@ -694,11 +722,13 @@ public final class TweetNacl {
 		A_Matrix(g, d, c);
 		A_Matrix(h, b, a);
 
-		M_Matrix_M(p[0], e, f);
-		M_Matrix_M(p[1], h, g);
-		M_Matrix_M(p[2], g, f);
-		M_Matrix_M(p[3], e, h);
+		M_Matrix_M(p0, e, f);
+		M_Matrix_M(p1, h, g);
+		M_Matrix_M(p2, g, f);
+		M_Matrix_M(p3, e, h);
 	}
+	
+	
 		
 	// o = a - b
 	private static void Z_Matrix(Matrix o, Matrix a, Matrix b) {
@@ -951,17 +981,17 @@ public final class TweetNacl {
 		Matrix ty = new Matrix((short)16,(short)2);
 		Matrix zi = new Matrix((short)16,(short)2);
 		
-		inv25519(zi, p[2]); 
+		inv25519_M(zi, p[2]); 
 
 		M_Matrix_M(tx, p[0], zi);
 		M_Matrix_M(ty, p[1], zi);
 
-		pack25519(r, ty);
+		pack25519_M(r, ty);
 
 		r[31] ^= par25519(tx) << 7;
 	}
 	
-	private static void inv25519(
+	private static void inv25519_M(
 			Matrix o,
 			Matrix i)
 	{
@@ -1194,7 +1224,114 @@ public final class TweetNacl {
 	    }
 	}
 	
-	private static void pack25519(byte [] o, Matrix n)
+	public static void pack25519(byte[]o, int[]n) {
+		short i,b;
+		Matrix m = new Matrix((short)16,(short)2), t = new Matrix((short)16,(short)2);
+		
+		for (i = 0; i < 16; i ++) {
+			t.set(i,(short)0, 0x0000);
+			t.set(i,(short)1, n[i]);
+		}
+
+		car25519Matrix(t);
+		car25519Matrix(t);
+		car25519Matrix(t);
+
+		
+		for(short j = 0; j<2; j++) {
+			
+			int[]t0 = new int[2]; 
+			t.getRow((short)0,t0);
+			int[]m14 = new int[2]; 
+			m.getRow((short)14,m14);
+			int[]t15 = new int[2];
+			t.getRow((short)15,t15);
+			int[]m15 = new int[2]; 
+			m.getRow((short)15,m15);
+			
+			// borrow 計算用
+			int lo = t0[0]; // 下位 limb
+			int hi = t0[1]; // 上位 limb
+
+			// 下位 limb で 0xffed を引く
+			int new_lo = lo - 0xffed;
+
+			// borrow が発生したら上位 limb に伝播
+			int borrow_1 = (new_lo >> 16) & 1;  // new_lo は int なので上位16bitを取り出す
+			new_lo &= 0xFFFF;                 // 下位16bitだけにマスク
+
+			// 上位 limb に borrow を加算
+			int new_hi = hi + borrow_1;
+
+			// 計算結果を m の 0 行に格納
+			int[] borrow1 = new int[2];
+			borrow1[0] = new_lo;
+			borrow1[1] = new_hi;
+			m.setRow((short)0, borrow1);
+			
+			for(i = 1; i < 15; i++) {
+			    int[] mi = new int[2];      // m の i 行
+			    int[] mi_1 = new int[2];    // m の i-1 行
+			    int[] ti = new int[2];      // t の i 行
+
+			    m.getRow(i, mi);
+			    m.getRow((short)(i-1), mi_1);
+			    t.getRow(i, ti);
+
+			    // 下位 limb の借り計算
+			    int[] borrow = new int[2];
+			    // ti - 0xffff - ((mi_1 >> 16)&1) を diffWithBorrow で計算
+			    int borrow_in = (mi_1[1] >>> 16) & 1;
+			    int[] temp_values2 = new int[]{ti[0], 0xffff, borrow_in}; // 上位は0, 借りは3番目に入れる
+			    diffWithBorrow(temp_values2, borrow);
+
+			    // 計算結果を m の i 行に格納
+			    m.setRow((short)i, borrow);
+
+			    // mi_1 の下位 limb をマスク
+			    mi_1[0] &= 0xFFFF;
+			    m.setRow((short)(i-1), mi_1);
+			    
+			}
+
+			int[] borrow_last = new int[2];
+			int borrow_in = (m14[1] >>> 16) & 1;
+			int[] temp_values = new int[]{t15[0], 0x7fff, borrow_in};
+			diffWithBorrow(temp_values, borrow_last);
+			m.setRow((short)15, borrow_last);
+			m14[0] &= 0xFFFF;  // 下位 limb をマスク
+			m.setRow((short)14, m14);
+			
+			// 最終 borrow フラグ
+			b = (short)((borrow_last[0] >>> 16) & 1);
+				
+			
+				sel25519Matrix(t, m, 1-b);
+				
+				//dumpMatrix("after sel25519", t);
+		
+		}
+		
+		for (i = 0; i < 8; i++) {
+		    int[] ti = new int[2]; // getRowが返す形式に合わせる
+		    t.getRow((short) i, ti);
+		    int base = i * 4;  // 1行あたり4バイト
+
+		    // lo (下位16bitだけ使う)
+		    o[base + 0] = (byte) (ti[0] & 0xFF);
+		    o[base + 1] = (byte) ((ti[0] >>> 8) & 0xFF);
+
+		    // hi (下位16bitだけ使う)
+		    o[base + 2] = (byte) (ti[1] & 0xFF);
+		    o[base + 3] = (byte) ((ti[1] >>> 8) & 0xFF);
+		}
+
+	///String dbgt = "";
+	///for (int dbg = 0; dbg < o.length; dbg ++) dbgt += " "+o[dbg];
+	///L/og.d(TAG, "pack25519 -> "+dbgt);
+}
+	
+	private static void pack25519_M(byte [] o, Matrix n)
 	{
 		short i,b;
 		Matrix m = new Matrix((short)16,(short)2), t = new Matrix((short)16,(short)2);
@@ -1280,7 +1417,7 @@ public final class TweetNacl {
 			
 				sel25519Matrix(t, m, 1-b);
 				
-				dumpMatrix("after sel25519", t);
+				//dumpMatrix("after sel25519", t);
 				
 		}
 		
@@ -1308,8 +1445,6 @@ public final class TweetNacl {
 	// pRow, qRow: int[32] (16 limb × hi-lo)
 	// b: 0 または 1
 	private static void sel25519Matrix(Matrix pRow, Matrix qRow, int b) {
-		
-		System.out.println(b);
 		
 		int mask = -b;  //b=0;do nothing, b=1;swap;
 		
@@ -1343,11 +1478,10 @@ public final class TweetNacl {
 	{
 		byte[] d = new byte[32];
 		
-		pack25519(d, a);
+		pack25519_M(d, a);
 		
 		return (byte) (d[0]&1);
 	}
-
 	
 	// t の内容を全部ダンプする関数
 	private static void dumpMatrix(String label, Matrix m) {
