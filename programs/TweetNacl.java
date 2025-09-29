@@ -643,10 +643,7 @@ public final class TweetNacl {
 			add(p,p);
 			cswap(p,q,b);
 		}
-			dumpMatrix("p0:",p[0]);
-			dumpMatrix("p1:",p[1]);
-			dumpMatrix("p2:",p[2]);
-			dumpMatrix("p3:",p[3]);
+
 
 		///String dbgt = "";
 		///for (int dbg = 0; dbg < p.length; dbg ++) for (int dd = 0; dd < p[dbg].length; dd ++) dbgt += " "+p[dbg][dd];
@@ -779,32 +776,7 @@ public final class TweetNacl {
 	    result[1] = borrow; // 上位への borrow
 	}
 	
-	public static void diffWithBorrow(int[] values, int[] borrow, int wordBits) {
-	    int borrow_in = (values.length > 2) ? values[2] : 0;
-	    int nWords = (wordBits + 15) / 16; // 16bit 単位で分割
-	    int diff_lo = 0;
-	    int diff_hi = 0;
-
-	    for (int i = 0; i < nWords; i++) {
-	        int shift = i * 16;
-	        int a_part = (values[0] >>> shift) & 0xFFFF;
-	        int b_part = (values[1] >>> shift) & 0xFFFF;
-
-	        int temp = a_part - b_part - borrow_in;
-	        if (temp < 0) {
-	            temp += 0x10000; // 2^16
-	            borrow_in = 1;
-	        } else {
-	            borrow_in = 0;
-	        }
-
-	        if (i == 0) diff_lo = temp;
-	        else diff_hi = temp; // 必要なら複数ワード用に配列化
-	    }
-
-	    borrow[0] = (diff_hi << 16) | (diff_lo & 0xFFFF);
-	    borrow[1] = borrow_in;
-	}
+	
 	
 		
 	// o = a + b
@@ -1407,112 +1379,6 @@ public final class TweetNacl {
 	    return result;
 	}
 	
-	public static void pack25519(byte[]o, int[]n) {
-		short i,b;
-		Matrix m = new Matrix((short)16,(short)2), t = new Matrix((short)16,(short)2);
-		
-		for (i = 0; i < 16; i ++) {
-			t.set(i,(short)0, 0x0000);
-			t.set(i,(short)1, n[i]);
-		}
-
-		car25519Matrix(t);
-		car25519Matrix(t);
-		car25519Matrix(t);
-
-		
-		for(short j = 0; j<2; j++) {
-			
-			int[]t0 = new int[2]; 
-			t.getRow((short)0,t0);
-			int[]m14 = new int[2]; 
-			m.getRow((short)14,m14);
-			int[]t15 = new int[2];
-			t.getRow((short)15,t15);
-			int[]m15 = new int[2]; 
-			m.getRow((short)15,m15);
-			
-			// borrow 計算用
-			int lo = t0[0]; // 下位 limb
-			int hi = t0[1]; // 上位 limb
-
-			// 下位 limb で 0xffed を引く
-			int new_lo = lo - 0xffed;
-
-			// borrow が発生したら上位 limb に伝播
-			int borrow_1 = (new_lo >> 16) & 1;  // new_lo は int なので上位16bitを取り出す
-			new_lo &= 0xFFFF;                 // 下位16bitだけにマスク
-
-			// 上位 limb に borrow を加算
-			int new_hi = hi + borrow_1;
-
-			// 計算結果を m の 0 行に格納
-			int[] borrow1 = new int[2];
-			borrow1[0] = new_lo;
-			borrow1[1] = new_hi;
-			m.setRow((short)0, borrow1);
-			
-			for(i = 1; i < 15; i++) {
-			    int[] mi = new int[2];      // m の i 行
-			    int[] mi_1 = new int[2];    // m の i-1 行
-			    int[] ti = new int[2];      // t の i 行
-
-			    m.getRow(i, mi);
-			    m.getRow((short)(i-1), mi_1);
-			    t.getRow(i, ti);
-
-			    // 下位 limb の借り計算
-			    int[] borrow = new int[2];
-			    // ti - 0xffff - ((mi_1 >> 16)&1) を diffWithBorrow で計算
-			    int borrow_in = (mi_1[1] >>> 16) & 1;
-			    int[] temp_values2 = new int[]{ti[0], 0xffff, borrow_in}; // 上位は0, 借りは3番目に入れる
-			    diffWithBorrow(temp_values2, borrow,3);
-
-			    // 計算結果を m の i 行に格納
-			    m.setRow((short)i, borrow);
-
-			    // mi_1 の下位 limb をマスク
-			    mi_1[0] &= 0xFFFF;
-			    m.setRow((short)(i-1), mi_1);
-			    
-			}
-
-			int[] borrow_last = new int[2];
-			int borrow_in = (m14[1] >>> 16) & 1;
-			int[] temp_values = new int[]{t15[0], 0x7fff, borrow_in};
-			diffWithBorrow(temp_values, borrow_last,3);
-			m.setRow((short)15, borrow_last);
-			m14[0] &= 0xFFFF;  // 下位 limb をマスク
-			m.setRow((short)14, m14);
-			
-			// 最終 borrow フラグ
-			b = (short)((borrow_last[0] >>> 16) & 1);
-				
-			
-				sel25519Matrix(t, m, 1-b);
-				
-				//dumpMatrix("after sel25519", t);
-		
-		}
-		
-		for (i = 0; i < 8; i++) {
-		    int[] ti = new int[2]; // getRowが返す形式に合わせる
-		    t.getRow((short) i, ti);
-		    int base = i * 4;  // 1行あたり4バイト
-
-		    // lo (下位16bitだけ使う)
-		    o[base + 0] = (byte) (ti[0] & 0xFF);
-		    o[base + 1] = (byte) ((ti[0] >>> 8) & 0xFF);
-
-		    // hi (下位16bitだけ使う)
-		    o[base + 2] = (byte) (ti[1] & 0xFF);
-		    o[base + 3] = (byte) ((ti[1] >>> 8) & 0xFF);
-		}
-
-	///String dbgt = "";
-	///for (int dbg = 0; dbg < o.length; dbg ++) dbgt += " "+o[dbg];
-	///L/og.d(TAG, "pack25519 -> "+dbgt);
-}
 	
 	private static void pack25519_M(byte [] o, Matrix n)
 	{
@@ -1538,28 +1404,10 @@ public final class TweetNacl {
 			m.getRow((short)14,m14);
 			int[]t15 = new int[2];
 			t.getRow((short)15,t15);
-			int[]m15 = new int[2]; 
-			m.getRow((short)15,m15);
-			
-			// borrow 計算用
-			int lo = t0[0]; // 下位 limb
-			int hi = t0[1]; // 上位 limb
-
-			// 下位 limb で 0xffed を引く
-			int new_lo = lo - 0xffed;
-
-			// borrow が発生したら上位 limb に伝播
-			int borrow_1 = (new_lo >> 16) & 1;  // new_lo は int なので上位16bitを取り出す
-			new_lo &= 0xFFFF;                 // 下位16bitだけにマスク
-
-			// 上位 limb に borrow を加算
-			int new_hi = hi + borrow_1;
-
-			// 計算結果を m の 0 行に格納
-			int[] borrow1 = new int[2];
-			borrow1[0] = new_lo;
-			borrow1[1] = new_hi;
-			m.setRow((short)0, borrow1);
+			//System.out.printf("t0: %08x %08x\n", t0[0],t0[1]);
+			addSignedToRow(t0, -0xffed);
+			//System.out.printf("m0: %08x %08x\n", t0[0],t0[1]);
+			m.setRow((short)0, t0);
 			
 			for(i = 1; i < 15; i++) {
 			    int[] mi = new int[2];      // m の i 行
@@ -1570,54 +1418,45 @@ public final class TweetNacl {
 			    m.getRow((short)(i-1), mi_1);
 			    t.getRow(i, ti);
 
-			    // 下位 limb の借り計算
-			    int[] borrow = new int[2];
 			    // ti - 0xffff - ((mi_1 >> 16)&1) を diffWithBorrow で計算
-			    int borrow_in = (mi_1[1] >>> 16) & 1;
-			    int[] temp_values2 = new int[]{ti[0], 0xffff, borrow_in}; // 上位は0, 借りは3番目に入れる
-			    diffWithBorrow(temp_values2, borrow,3);
+			    addSignedToRow(ti, -0xffff);
+			    addSignedToRow(ti, -((mi_1[1] >>> 16) & 1));
 
 			    // 計算結果を m の i 行に格納
-			    m.setRow((short)i, borrow);
+			    m.setRow((short)i, ti);
 
 			    // mi_1 の下位 limb をマスク
-			    mi_1[0] &= 0xFFFF;
+			    mi_1[1] &= 0xFFFF;
+			    mi_1[0] = 0;
 			    m.setRow((short)(i-1), mi_1);
 			    
 			}
+			m.getRow((short)14,m14);
+			addSignedToRow(t15, -0x7fff);
+			addSignedToRow(t15, -((m14[1] >>> 16) & 1));
 
-			int[] borrow_last = new int[2];
-			int borrow_in = (m14[1] >>> 16) & 1;
-			int[] temp_values = new int[]{t15[0], 0x7fff, borrow_in};
-			diffWithBorrow(temp_values, borrow_last,3);
-			m.setRow((short)15, borrow_last);
-			m14[0] &= 0xFFFF;  // 下位 limb をマスク
+			m.setRow((short)15, t15);
+			m14[1] &= 0xFFFF;  // 下位 limb をマスク
+			m14[0] = 0;  // 下位 limb をマスク
 			m.setRow((short)14, m14);
 			
 			// 最終 borrow フラグ
-			b = (short)((borrow_last[0] >>> 16) & 1);
-				
+			b = (short)((t15[0] >>> 16) & 1);
 			
+			//dumpMatrix("t",t);
+			//dumpMatrix("m",m);
 				sel25519Matrix(t, m, 1-b);
-				
-				dumpMatrix("t",t);
-				
+				//dumpMatrix("m",m);
+				//dumpMatrix("t",t);
 		}
-		
-			for (i = 0; i < 8; i++) {
-			    int[] ti = new int[2]; // getRowが返す形式に合わせる
-			    t.getRow((short) i, ti);
-			    int base = i * 4;  // 1行あたり4バイト
-
-			    // lo (下位16bitだけ使う)
-			    o[base + 0] = (byte) (ti[0] & 0xFF);
-			    o[base + 1] = (byte) ((ti[0] >>> 8) & 0xFF);
-
-			    // hi (下位16bitだけ使う)
-			    o[base + 2] = (byte) (ti[1] & 0xFF);
-			    o[base + 3] = (byte) ((ti[1] >>> 8) & 0xFF);
-			}
-
+		//System.out.println("-----");
+		for (i = 0; i < 16; i ++) {
+			int[] ti = new int[2];
+			t.getRow(i, ti);
+			o[2*i]=(byte) (ti[1]&0xff);
+			o[2*i+1]=(byte) (ti[1] >> 8);
+		}
+			System.out.println("o:" + util.HexUtil.byteArrayToHexString(o));
 		///String dbgt = "";
 		///for (int dbg = 0; dbg < o.length; dbg ++) dbgt += " "+o[dbg];
 		///L/og.d(TAG, "pack25519 -> "+dbgt);
@@ -1641,15 +1480,15 @@ public final class TweetNacl {
 	        pRow.getRow(i, pVals);
 	        qRow.getRow(i, qVals);
 
-	        // 下位32bit (lo) の XOR
-	        int t_lo = mask & (pVals[0] ^ qVals[0]);
-	        pVals[0] ^= t_lo;
-	        qVals[0] ^= t_lo;
+	     // 下位32bit (lo) XOR、符号なしマスク
+	        int t_lo = mask & ((pVals[1] ^ qVals[1]) & 0xFFFFFFFF);
+	        pVals[1] ^= t_lo;
+	        qVals[1] ^= t_lo;
 
-	        // 上位32bit (hi) の XOR
-	        int t_hi = mask & (pVals[1] ^ qVals[1]);
-	        pVals[1] ^= t_hi;
-	        qVals[1] ^= t_hi;
+	        // 上位32bit (hi) XOR、符号なしマスク
+	        int t_hi = mask & ((pVals[0] ^ qVals[0]) & 0xFFFFFFFF);
+	        pVals[0] ^= t_hi;
+	        qVals[0] ^= t_hi;
 	        
 	        // 計算結果を戻す
 	        pRow.setRow(i, pVals);
