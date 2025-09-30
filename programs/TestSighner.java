@@ -25,13 +25,11 @@ public class TestSighner {
 
         byte[] pk = new byte[32]; // Public key
         TweetNacl.crypto_sign_keypair(pk, sk, true);
-        
-        System.out.println("length:" + pk.length);
-        
+
      // --- 公開鍵チェック ---
         System.out.println("Generated Public Key: " +util.HexUtil.byteArrayToHexString(pk));
         System.out.println("Matches expected? " + java.util.Arrays.equals(pk, pubKey));
-		
+        
         byte[] signed = new byte[64 + messageBuffer.length]; // 署名 + データ
         TweetNacl.crypto_sign(signed, (short)0, messageBuffer, messageBuffer.length, sk);
 
@@ -45,6 +43,7 @@ public class TestSighner {
         System.out.println("Matches expected signature? " + java.util.Arrays.equals(signature, expectedSignature));
 
         System.out.println("Signed data matches original? " + java.util.Arrays.equals(signedData, messageBuffer));
+    
     }
 
 }

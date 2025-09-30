@@ -356,6 +356,102 @@ public final class TweetNacl {
         System.arraycopy(tmp, 0, x, (short)0, len);
 	}
 	
+	//sign
+		public static int crypto_sign(byte [] sm, short dummy /* *smlen not used*/, byte [] m, int/*long*/ n, byte [] sk)
+		{
+			byte[] d = new byte[64], h = new byte[64], r = new byte[64];
+
+			short i, j;
+			Matrix x = new Matrix((short)64,(short)2);
+
+			short rows = 16;   // limb 数
+			short cols = 2;    // hi/lo
+			Matrix p0 = new Matrix(rows, cols);
+			Matrix p1 = new Matrix(rows, cols);
+			Matrix p2 = new Matrix(rows, cols);
+			Matrix p3 = new Matrix(rows, cols);
+			
+			Matrix[] pMatrices = new Matrix[4];
+			pMatrices[0] = p0;
+			pMatrices[1] = p1;
+			pMatrices[2] = p2;
+			pMatrices[3] = p3;
+
+			// 初期化（必要なら 0 で埋める）
+			for (i = 0; i < rows; i++) {
+			    int[] zero = new int[2]; // hi/lo
+			    zero[0] = 0; // lo
+			    zero[1] = 0; // hi
+			    p0.setRow(i, zero);
+			    p1.setRow(i, zero);
+			    p2.setRow(i, zero);
+			    p3.setRow(i, zero);
+			}
+
+			crypto_hash(d, sk,0,sk.length, 32);
+			d[0] &= 248;
+			d[31] &= 127;
+			d[31] |= 64;
+
+			///*smlen = n+64;
+
+			for (i = 0; i < n; i ++) sm[64 + i] = m[i];
+			
+			for (i = 0; i < 32; i ++) sm[32 + i] = d[32 + i];
+
+			crypto_hash(r, sm,32,sm.length-32, n+32);
+			
+			reduce(r);
+			System.out.println(util.HexUtil.byteArrayToHexString(r));
+			scalarbase(pMatrices, r,0,r.length);
+			pack(sm,pMatrices);
+
+			for (i = 0; i < 32; i ++) sm[i+32] = sk[i+32];
+			crypto_hash(h, sm,0,sm.length, n + 64);
+			reduce(h);
+
+			for (i = 0; i < 64; i ++) {
+				int[]xi  = new int[2];
+				x.getRow(i, xi);
+				xi[0] = 0;
+				xi[1] = 0;
+				x.setRow(i, xi);
+			}
+			
+			for (i = 0; i < 32; i ++) {
+				int[]xi  = new int[2];
+				x.getRow(i, xi);
+				xi[1] = r[i] & 0xff;  // 下位8bitをxi[0]に
+				xi[0] = 0;             // 上位16bitは0に
+				x.setRow((short)i, xi); // 必要ならMatrixに戻す
+			}
+			
+			for (i = 0; i < 32; i ++) {
+				for (j = 0; j < 32; j ++) {
+					int hi = 0;
+			        int lo = (h[i] & 0xff) * (d[j] & 0xff); // 0..65025なので32bit内に収まる
+			        int[] tmp = new int[] {hi, lo};
+
+			        int[] xij = new int[2];
+			        x.getRow((short)(i + j), xij);
+
+			        // hi/lo に分けて加算
+			        addSignedToRow(xij, tmp[1]); // lo の加算、hi に桁上がり反映
+			        // 必要なら hi も加算
+			        xij[0] += tmp[0];
+
+			        x.setRow((short)(i + j), xij);
+				}
+			}
+			dumpMatrix("x",x);
+			
+			modL(sm,32,sm.length-32, x);
+			
+			return 0;
+
+		}
+		
+	
 	private static int crypto_hash(byte [] out, byte [] m,final int moff,final int mlen, int n)
 	{
 		byte[] h = new byte[64], x = new byte [256];
@@ -804,93 +900,6 @@ public final class TweetNacl {
 		
 	
 	
-	//sign
-	public static int crypto_sign(byte [] sm, short dummy /* *smlen not used*/, byte [] m, int/*long*/ n, byte [] sk)
-	{
-		byte[] d = new byte[64], h = new byte[64], r = new byte[64];
-
-		short i, j;
-		Matrix x = new Matrix((short)64,(short)2);
-
-		short rows = 16;   // limb 数
-		short cols = 2;    // hi/lo
-		Matrix p0 = new Matrix(rows, cols);
-		Matrix p1 = new Matrix(rows, cols);
-		Matrix p2 = new Matrix(rows, cols);
-		Matrix p3 = new Matrix(rows, cols);
-		
-		Matrix[] pMatrices = new Matrix[4];
-		pMatrices[0] = p0;
-		pMatrices[1] = p1;
-		pMatrices[2] = p2;
-		pMatrices[3] = p3;
-
-		// 初期化（必要なら 0 で埋める）
-		for (i = 0; i < rows; i++) {
-		    int[] zero = new int[2]; // hi/lo
-		    zero[0] = 0; // lo
-		    zero[1] = 0; // hi
-		    p0.setRow(i, zero);
-		    p1.setRow(i, zero);
-		    p2.setRow(i, zero);
-		    p3.setRow(i, zero);
-		}
-
-		crypto_hash(d, sk,0,sk.length, 32);
-		d[0] &= 248;
-		d[31] &= 127;
-		d[31] |= 64;
-
-		///*smlen = n+64;
-
-		for (i = 0; i < n; i ++) sm[64 + i] = m[i];
-		
-		for (i = 0; i < 32; i ++) sm[32 + i] = d[32 + i];
-
-		crypto_hash(r, sm,32,sm.length-32, n+32);
-		reduce(r);
-		scalarbase(pMatrices, r,0,r.length);
-		pack(sm,pMatrices);
-
-		for (i = 0; i < 32; i ++) sm[i+32] = sk[i+32];
-		crypto_hash(h, sm,0,sm.length, n + 64);
-		reduce(h);
-
-		for (i = 0; i < 64; i ++) {
-			int[]xi  = new int[2];
-			x.getRow(i, xi);
-			xi[0] = 0;
-			xi[1] = 0;
-			x.setRow(i, xi);
-		}
-		
-		for (i = 0; i < 32; i ++) {
-			int[]xi  = new int[2];
-			x.getRow(i, xi);
-			xi[0] = r[i] & 0xff;  // 下位8bitをxi[0]に
-			xi[1] = 0;             // 上位16bitは0に
-			x.setRow((short)i, xi); // 必要ならMatrixに戻す
-		}
-		
-		for (i = 0; i < 32; i ++) for (j = 0; j < 32; j ++) {
-			int[]xij  = new int[2];
-			x.getRow((short)(i+j), xij);
-			// 下位16bitに加算
-			int temp = (xij[0] & 0xFFFF) + ((h[i] & 0xFF) * (d[j] & 0xFF));
-			int carry = temp >>> 16;
-			xij[0] = temp & 0xFFFF;
-
-			// 上位16bitにキャリーを足す
-			xij[1] = (xij[1] & 0xFFFF) + carry;
-
-			// 必要ならMatrixに戻す
-			x.setRow((short)(i+j), xij);
-		}
-		
-		modL(sm,32,sm.length-32, x);
-
-		return 0;
-	}
 	
 	private static void reduce(byte [] r)
 	{
@@ -900,8 +909,8 @@ public final class TweetNacl {
 		
 		for (i = 0; i < 64; i ++) {
 			x.getRow(i, xi);
-			xi[0] = r[i] & 0xff;  // 下位8bitをxi[0]に
-			xi[1] = 0;             // 上位16bitは0に
+			xi[1] = r[i] & 0xff;  // 下位8bitをxi[0]に
+			xi[0] = 0;             // 上位16bitは0に
 			x.setRow((short)i, xi); // 必要ならMatrixに戻す
 		}
 		
@@ -912,48 +921,107 @@ public final class TweetNacl {
 	
 	private static void modL(byte[] r,final int roff,final int rlen, Matrix x)
 	{
-	    int[] xi = new int[2];
-	    int[] xj = new int[2];
-	    int[] x31 = new int[2];
-	    int carry;
+		int[] carry = new int[2];
+		int i, j;
+		int[] xi = new int[2];
+		int[] xj = new int[2];
+		int tmp1,tmp2,tmp3,tmp4;
+		int[] tmp = new int[2];
+		int newHi,newLo;
+		
+		for (i = 63;i >= 32;--i) {
+			carry[0] = 0;
+			carry[1] = 0;
+			x.getRow((short)i, xi);
+			for (j = i - 32;j < i - 12;++j) {
+				x.getRow((short)j, xj);
+				tmp1 = carry[1];
+				tmp2 = -16;
+				tmp3 = xi[1] * L[j - (i - 32)];
+				tmp4 = tmp2*tmp3;
+				addSignedToRow(xj, tmp1);
+				addSignedToRow(xj, tmp4);
+				// (xj[1] + 128) >> 8 を hi/lo で表現する
 
-	    // 上位32バイトから処理
-	    for (int i = 63; i >= 32; --i) {
-	        carry = 0;
-	        x.getRow((short)i, xi);
-	        
-	        for (int j = i - 32; j < i - 12; ++j) {
-	            x.getRow((short)j, xj);
+				// まず 128 を加える
+				tmp[0] = xj[0];
+				tmp[1] = xj[1];
+				addSignedToRow(tmp, 128);
 
-	            // 下位16bit計算
-	            int temp = (xj[0] & 0xFFFF) - (16 * (xi[0] & 0xFFFF) * (L[j - (i - 32)] & 0xFF)) + carry;
-	            carry = temp >> 16;
-	            xj[0] = temp & 0xFFFF;
+				// 2. 全体を 8bit 算術シフト
+				newHi = tmp[0] >> 8;  // 算術シフトで符号維持
+				newLo = ((tmp[0] << 24) | (tmp[1] >>> 8)) & 0xffffffff;
 
-	            // 上位16bitにキャリーを足す
-	            xj[1] = (xj[1] & 0xFFFF) + carry;
-	            x.setRow((short)j, xj);
-	        }
+				
+				// carry に代入
+				carry[0] = newHi;
+				carry[1] = newLo;
+				
+				int[] neg = new int[2];
+				neg64(carry,neg);
+			
+				addSignedToRow(xj,(neg[1]<<8));
+				//System.out.printf("xj %08x %08x\n", xj[0],xj[1]);
+				x.setRow((short)j, xj);
+			}
+			x.getRow((short)j, xj);
+			addSignedToRow(xj,carry[1]);
+			
+			x.setRow((short)j, xj);
+			xi[1] = 0;
+			xi[0] = 0;
+			x.setRow((short)i, xi);
+			
+			
+		}
+		
+		carry[0] = 0;
+		carry[1] = 0;
+		int[] x31 = new int[2];
+		for (j = 0; j < 32; j ++) {
+			x.getRow((short)j, xj);
+			x.getRow((short)31, x31);
+			tmp1 = carry[1];
+			tmp2 = -(x31[1] >> 4) * L[j];
+			addSignedToRow(xj,tmp1);
+			addSignedToRow(xj,tmp2);
+			
+			//System.out.printf("xj %08x %08x\n", xj[0],xj[1]);
+			// 2. 全体を 8bit 算術シフト
+			newHi = xj[0] >> 8;  // 算術シフトで符号維持
+			newLo = ((xj[0] << 24) | (xj[1] >>> 8)) & 0xffffffff;
+			
+			// carry に代入
+			carry[0] = newHi;
+			carry[1] = newLo;
 
-	        // xi は使い終わったらクリア
-	        xi[0] = xi[1] = 0;
-	    }
+			xj[1] &= 255;
+			xj[0] = 0;
+			x.setRow((short)j, xj);
+		}
+		
+		for (j = 0; j < 32; j ++) {
+			x.getRow((short)j, xj);
+			tmp1 = -carry[1] * L[j];
+			addSignedToRow(xj,tmp1);
+			x.setRow((short)j, xj);
+		}
+		//dumpMatrix("x",x);
+		int[] xi1 = new int[2];
+		for (i = 0; i < 32; i ++) {
+			x.getRow((short)i, xi);
+			x.getRow((short)(i+1), xi1);
+			//System.out.printf("xj %08x %08x\n", xj[0],xj[1]);
+			// 2. 全体を 8bit 算術シフト
+			newHi = xj[0] >> 8;  // 算術シフトで符号維持
+			newLo = ((xj[0] << 24) | (xj[1] >>> 8)) & 0xffffffff;
 
-	    // 下位32バイト処理
-	    carry = 0;
-	    for (int j = 0; j < 32; j++) {
-	        x.getRow((short)j, x31);
-	        int temp = (x31[0] & 0xFFFF) - ((x31[1] >>> 4) & 0xFFFF) * (L[j] & 0xFF) + carry;
-	        carry = temp >> 8;
-	        x31[0] = temp & 0xFF;
-	        x.setRow((short)j, x31);
-	    }
-
-	    // 最後に r に書き込む
-	    for (int i = 0; i < 32; i++) {
-	        x.getRow((short)i, xi);
-	        r[i + roff] = (byte)(xi[0] & 0xFF);
-	    }
+			// carry に代入
+			xi1[0] = newHi;
+			xi1[1] = newLo;
+		    r[i+roff] = (byte) (xi[1] & 255);
+		    //x.setRow((short)(i+1), xi1);
+		}
 	}
 	
 	private static final int L[] = {
