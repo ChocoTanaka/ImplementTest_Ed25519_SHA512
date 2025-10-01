@@ -4,34 +4,36 @@ public class TestSighner {
 
 	public static void main(String[] args) {
 		
-		String privstr = "6AA6DAD25D3ACB3385D5643293133936CDDDD7F7E11818771DB1FF2F9D3F9215";
+		String privstr = "E6C1685E7AC64EFB63B77D55E05D7A1D1036B21A2831A250564653DC0A137CB7";
 		byte[] privKey = util.HexUtil.hexStringToByteArray(privstr);
 
 		
-		String PubKeystr = "F7BBE3BB4DBF9698122DA02EB8A6EDE55F1EF90D0C64819E8A792231A2A0B143";
+		String PubKeystr = "2E71772EA2A8216A6489235DC630E2948B1320E5BCAFE9F9D624F1B9515F5871";
 		byte[] pubKey = util.HexUtil.hexStringToByteArray(PubKeystr);
 		
 		//System.out.println(util.HexUtil.byteArrayToHexString(pubKey));
 		
-		String datastr = "E4A92208A6FC52282B620699191EE6FB9CF04DAF48B48FD542C5E43DAA9897763A199AAA4B6F10546109F47AC3564FADE0";
+		String datastr = "A50E6D1BCF638075E64C9E1B17C4DF9D21EA977878E2852628A485A29D8456FC7073921DE0A972E9DA4AC861";
 		byte[] messageBuffer = util.HexUtil.hexStringToByteArray(datastr);
 		
-		String Signaturestr = "F21E4BE0A914C0C023F724E1EAB9071A3743887BB8824CB170404475873A827B301464261E93700725E8D4427A3E39D365AFB2C9191F75D33C6BE55896E0CC00";
+		String Signaturestr = "16B8630CE5268C4AF312EDF8791DB70FBB1F1ACDA6E1D468A3A266C221574D9E3C666373B4CCB68FDE86270A8EC7C1228A0E4E4073CFE9807364FED3CE231304";
 		byte[] expectedSignature = util.HexUtil.hexStringToByteArray(Signaturestr);
+		
+		TweetNacl Nacl = new TweetNacl();
 		
 		// --- キーペア生成 ---
         byte[] sk = new byte[64]; // Secret key: 前半32バイトがprivate、後半32バイトがpublic
         System.arraycopy(privKey, 0, sk, 0, 32);
 
         byte[] pk = new byte[32]; // Public key
-        TweetNacl.crypto_sign_keypair(pk, sk, true);
+        Nacl.crypto_sign_keypair(pk, sk, true);
 
      // --- 公開鍵チェック ---
         System.out.println("Generated Public Key: " +util.HexUtil.byteArrayToHexString(pk));
         System.out.println("Matches expected? " + java.util.Arrays.equals(pk, pubKey));
         
         byte[] signed = new byte[64 + messageBuffer.length]; // 署名 + データ
-        TweetNacl.crypto_sign(signed, (short)0, messageBuffer, messageBuffer.length, sk);
+        Nacl.crypto_sign(signed, (short)0, messageBuffer, messageBuffer.length, sk);
 
         // --- 署名部分とデータ部分に分けてチェック ---
         byte[] signature = new byte[64];
