@@ -6,55 +6,82 @@ import java.security.SecureRandom;
 final class UInt64 {
     private UInt64() {} // static only
 
-    static void copy(int[] src, int[] dst) {
-        dst[0] = src[0]; dst[1] = src[1];
+    static void xor16(short[] a, short[] b, short[] out) {
+        for (short i = 0; i < 4; i++) out[i] = (short)(a[i] ^ b[i]);
     }
 
-    static void xor(int[] a, int[] b, int[] out) {
-        out[0] = a[0] ^ b[0];
-        out[1] = a[1] ^ b[1];
+    static void and16(short[] a, short[] b, short[] out) {
+        for (short i = 0; i < 4; i++) out[i] = (short)(a[i] & b[i]);
     }
 
-    static void and(int[] a, int[] b, int[] out) {
-        out[0] = a[0] & b[0];
-        out[1] = a[1] & b[1];
-    }
-
-    static void not(int[] a, int[] out) {
-        out[0] = ~a[0]; out[1] = ~a[1];
+    static void not16(short[] a, short[] out) {
+        for (short i = 0; i < 4; i++) out[i] = (short)(~a[i]);
     }
 
 
     // out = a + b (in-place allowed: out may be a or b)
     // shr: logical right shift by n (0<=n<64)
-    static void shr(int[] x, int n, int[] out) {
-        if (n == 0) { copy(x,out); return; }
+    static void shr16(short[] x, int n, short[] out) {
+    	if (n == 0) { System.arraycopy(x, 0, out, 0, 4); return; }
+
+    	if (n == 0) { System.arraycopy(x, 0, out, 0, 4); return; }
+
+        // intで一時的に64bit値に組み立て
+        int hi = ((x[0] & 0xFFFF) << 16) | (x[1] & 0xFFFF);
+        int lo = ((x[2] & 0xFFFF) << 16) | (x[3] & 0xFFFF);
+
+        int outHi, outLo;
+
         if (n < 32) {
-            out[1] = (x[1] >>> n) | (x[0] << (32 - n));
-            out[0] = x[0] >>> n;
+            outLo = (lo >>> n) | (hi << (32 - n));
+            outHi = hi >>> n;
         } else {
-            out[1] = x[0] >>> (n - 32);
-            out[0] = 0;
+            outLo = hi >>> (n - 32);
+            outHi = 0;
         }
+
+        // int2 -> short4
+        out[0] = (short)(outHi >>> 16);
+        out[1] = (short)(outHi & 0xFFFF);
+        out[2] = (short)(outLo >>> 16);
+        out[3] = (short)(outLo & 0xFFFF);
     }
-    static void shl(int[] x, int n, int[] out) {
-        if (n == 0) { copy(x,out); return; }
+    static void shl16(short[] x, int n, short[] out) {
+        if (n == 0) { System.arraycopy(x, 0, out, 0, 4); return; }
+
+        int hi = ((x[0] & 0xFFFF) << 16) | (x[1] & 0xFFFF);
+        int lo = ((x[2] & 0xFFFF) << 16) | (x[3] & 0xFFFF);
+        int outHi, outLo;
+
         if (n < 32) {
-            out[0] = (x[0] << n) | (x[1] >>> (32 - n));
-            out[1] = x[1] << n;
+            outHi = (hi << n) | (lo >>> (32 - n));
+            outLo = lo << n;
         } else {
-            out[0] = x[1] << (n - 32);
-            out[1] = 0;
+            outHi = lo << (n - 32);
+            outLo = 0;
         }
+
+        out[0] = (short)(outHi >>> 16);
+        out[1] = (short)(outHi & 0xFFFF);
+        out[2] = (short)(outLo >>> 16);
+        out[3] = (short)(outLo & 0xFFFF);
     }
 
-    static void rotr(int[] x, int n, int[] out) {
-        int[] t1 = new int[2];
-        int[] t2 = new int[2];
-        shr(x, n, t1);
-        shl(x, 64 - n, t2);
-        out[0] = t1[0] | t2[0];
-        out[1] = t1[1] | t2[1];
+    static void rotr16(short[] x, int n, short[] out) {
+    	if (n == 0) {
+            System.arraycopy(x, 0, out, 0, 4);
+            return;
+        }
+
+        short[] t1 = new short[4];
+        short[] t2 = new short[4];
+
+        shr16(x, n, t1);
+        shl16(x, 64 - n, t2);
+
+        for (int i = 0; i < 4; i++) {
+            out[i] = (short)((t1[i] & 0xFFFF) | (t2[i] & 0xFFFF));
+        }
     }
 }
 
@@ -62,42 +89,46 @@ final class UInt64 {
 final class Matrix {
     short defrow;
 	short defcol;
-	int[] data = new int[(short)(defrow * defcol)];
+	short[] data = new short[(short)(defrow * defcol)];
 	
-	Matrix(short row, short col,int[]init) {
+	Matrix(short row, short col) {
 		this.defrow = row;
 		this.defcol = col;
-		this.data = new int[(short)(row * col)]; 
+		this.data = new short[(short)(row * col)]; 
 		
-		for (short i = 0; i < (short)(row * col); i++) {
-	        this.data[i] = init[i];
-	    }
+		
 	}
 
     int get(short row, short col) {
         return data[(short)(row * defcol + col)];
     }
 
-    void set(short row, short col, int value) {
+    void set(short row, short col, short value) {
         data[(short)(row * defcol + col)] = value;
     }
     
  // get row into int[2] (hi/lo)
-    public void getRow(short row, int[] out) {
-        out[0] = data[(short)(row * defcol + 0)];
-        out[1] = data[(short)(row * defcol + 1)];
+    public void getRow(short row, short[] out) {
+    	for(short i=0;i<defcol; i++) {
+    		out[i] = data[(short)(row * defcol + i)];
+    		}
     }
-    public void setRow(short row, int[] in) {
-        data[(short)(row * defcol + 0)] = in[0];
-        data[(short)(row * defcol + 1)] = in[1];
+    public void setRow(short row, short[] in) {
+    	for(short i = 0; i<defcol; i++) {
+			data[(short)(row * defcol + i)] = in[i];
+		}
     }
  
     //a[i+j] = b[i]; => a.copyRowFrom(i+j,i,b);
     
     void copyRowFrom(short dstRow, short srcRow, Matrix src) {
-    		int[]set = new int[2];    
+    		short[]set = new short[defcol];    
     		src.getRow(srcRow, set);
         this.setRow(dstRow, set);
+    }
+    
+    void clear() {
+        for (int i = 0; i < data.length; i++) data[i] = 0;
     }
 }
 
@@ -113,196 +144,266 @@ public class TweetNacl {
 			0x1f,(byte) 0x83,(byte) 0xd9,(byte) 0xab,(byte) 0xfb,0x41,(byte) 0xbd,0x6b,
 			0x5b,(byte) 0xe0,(byte) 0xcd,0x19,0x13,0x7e,0x21,0x79
 	} ;
-	private static final int [] D2v = new int [] {
-			0x0000, 0xf159, 0x0000, 0x26b2, 0x0000, 0x9b94, 0x0000, 0xebd6, 
-			0x0000, 0xb156, 0x0000, 0x8283, 0x0000, 0x149a, 0x0000, 0x00e0,
-			0x0000, 0xd130, 0x0000, 0xeef3, 0x0000, 0x80f2, 0x0000, 0x198e,
-			0x0000, 0xfce7, 0x0000, 0x56df, 0x0000, 0xd9dc, 0x0000, 0x2406
+	private static final short [] D2v = {
+			0x0000,0x0000,0x0000, (short)0xf159,0x0000,0x0000, 0x0000, (short)0x26b2,
+			0x0000,0x0000, 0x0000, (short)0x9b94,0x0000,0x0000, 0x0000, (short)0xebd6, 
+			0x0000,0x0000,0x0000, (short)0xb156,0x0000,0x0000, 0x0000, (short)0x8283,
+			0x0000,0x0000, 0x0000, (short)0x149a,0x0000,0x0000, 0x0000, (short)0x00e0,
+			0x0000,0x0000,0x0000, (short)0xd130,0x0000,0x0000, 0x0000, (short)0xeef3,
+			0x0000,0x0000, 0x0000, (short)0x80f2,0x0000,0x0000, 0x0000, (short)0x198e,
+			0x0000,0x0000,0x0000, (short)0xfce7,0x0000,0x0000, 0x0000, (short)0x56df,
+			0x0000,0x0000, 0x0000, (short)0xd9dc,0x0000,0x0000, 0x0000, (short)0x2406
 	};
 	// X と Y を hi/lo に分けて Matrix にセット
-		private static Matrix D2_MATRIX;
+		private static Matrix D2_MATRIX= new Matrix((short)16,(short)4);
 		
 	
-	private static final int []  Xv = new int [] {
-			0x0000, 0xd51a, 0x0000, 0x8f25, 0x0000, 0x2d60, 0x0000, 0xc956, 
-			0x0000, 0xa7b2, 0x0000, 0x9525, 0x0000, 0xc760, 0x0000, 0x692c,
-			0x0000, 0xdc5c, 0x0000, 0xfdd6, 0x0000, 0xe231, 0x0000, 0xc0a4, 
-			0x0000, 0x53fe, 0x0000, 0xcd6e, 0x0000, 0x36d3, 0x0000, 0x2169
+	private static final short []  Xv =  {
+			0x0000,0x0000,0x0000, (short)0xd51a,0x0000,0x0000, 0x0000, (short)0x8f25,
+			0x0000,0x0000,0x0000, (short)0x2d60,0x0000,0x0000, 0x0000, (short)0xc956, 
+			0x0000,0x0000,0x0000, (short)0xa7b2,0x0000,0x0000, 0x0000, (short)0x9525,
+			0x0000,0x0000,0x0000, (short)0xc760,0x0000,0x0000, 0x0000, (short)0x692c,
+			0x0000,0x0000,0x0000, (short)0xdc5c,0x0000,0x0000, 0x0000, (short)0xfdd6,
+			0x0000,0x0000,0x0000, (short)0xe231,0x0000,0x0000, 0x0000, (short)0xc0a4, 
+			0x0000,0x0000,0x0000, (short)0x53fe,0x0000,0x0000, 0x0000, (short)0xcd6e,
+			0x0000,0x0000,0x0000, (short)0x36d3,0x0000,0x0000, 0x0000, (short)0x2169
 	};
 	
-	private static final int []  Yv = new int [] {
-			0x0000, 0x6658, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 
-			0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666,
-			0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666,
-			0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666, 0x0000, 0x6666
-	};
-	
-	// X と Y を hi/lo に分けて Matrix にセット
-	private static Matrix X_MATRIX;
-	private static Matrix Y_MATRIX;
-
-	private static final int []  gf0_v = new int [] {
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-	};
-	private static final int []  gf1_v = new int [] {
-			0x0001,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
-			0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
+	private static final short []  Yv =  {
+			0x0000,0x0000,0x0000, 0x6658,0x0000,0x0000, 0x0000, 0x6666,
+			0x0000,0x0000, 0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666, 
+			0x0000,0x0000,0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666,
+			0x0000,0x0000, 0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666,
+			0x0000,0x0000,0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666,
+			0x0000,0x0000, 0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666,
+			0x0000,0x0000,0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666,
+			0x0000,0x0000, 0x0000, 0x6666,0x0000,0x0000, 0x0000, 0x6666
 	};
 	
 	// X と Y を hi/lo に分けて Matrix にセット
-	private static Matrix gf0_MATRIX;
-	private static Matrix gf1_MATRIX;
+	private static Matrix X_MATRIX= new Matrix((short)16,(short)4);
+	private static Matrix Y_MATRIX= new Matrix((short)16,(short)4);
 	
-	private static int[] Kv = {
-			0x428a2f98, 0xd728ae22, 0x71374491, 0x23ef65cd, 0xb5c0fbcf, 0xec4d3b2f, 0xe9b5dba5, 0x8189dbbc,
-			0x3956c25b, 0xf348b538, 0x59f111f1, 0xb605d019, 0x923f82a4, 0xaf194f9b, 0xab1c5ed5, 0xda6d8118,
-			0xd807aa98, 0xa3030242, 0x12835b01, 0x45706fbe, 0x243185be, 0x4ee4b28c, 0x550c7dc3, 0xd5ffb4e2,
-			0x72be5d74, 0xf27b896f, 0x80deb1fe, 0x3b1696b1, 0x9bdc06a7, 0x25c71235, 0xc19bf174, 0xcf692694,
-			0xe49b69c1, 0x9ef14ad2, 0xefbe4786, 0x384f25e3, 0x0fc19dc6, 0x8b8cd5b5, 0x240ca1cc, 0x77ac9c65,
-			0x2de92c6f, 0x592b0275, 0x4a7484aa, 0x6ea6e483, 0x5cb0a9dc, 0xbd41fbd4, 0x76f988da, 0x831153b5,
-			0x983e5152, 0xee66dfab, 0xa831c66d, 0x2db43210, 0xb00327c8, 0x98fb213f, 0xbf597fc7, 0xbeef0ee4,
-			0xc6e00bf3, 0x3da88fc2, 0xd5a79147, 0x930aa725, 0x06ca6351, 0xe003826f, 0x14292967, 0x0a0e6e70,
-			0x27b70a85, 0x46d22ffc, 0x2e1b2138, 0x5c26c926, 0x4d2c6dfc, 0x5ac42aed, 0x53380d13, 0x9d95b3df,
-			0x650a7354, 0x8baf63de, 0x766a0abb, 0x3c77b2a8, 0x81c2c92e, 0x47edaee6, 0x92722c85, 0x1482353b,
-			0xa2bfe8a1, 0x4cf10364, 0xa81a664b, 0xbc423001, 0xc24b8b70, 0xd0f89791, 0xc76c51a3, 0x0654be30,
-			0xd192e819, 0xd6ef5218, 0xd6990624, 0x5565a910, 0xf40e3585, 0x5771202a, 0x106aa070, 0x32bbd1b8,
-			0x19a4c116, 0xb8d2d0c8, 0x1e376c08, 0x5141ab53, 0x2748774c, 0xdf8eeb99, 0x34b0bcb5, 0xe19b48a8,
-			0x391c0cb3, 0xc5c95a63, 0x4ed8aa4a, 0xe3418acb, 0x5b9cca4f, 0x7763e373, 0x682e6ff3, 0xd6b2b8a3,
-			0x748f82ee, 0x5defb2fc, 0x78a5636f, 0x43172f60, 0x84c87814, 0xa1f0ab72, 0x8cc70208, 0x1a6439ec,
-			0x90befffa, 0x23631e28, 0xa4506ceb, 0xde82bde9, 0xbef9a3f7, 0xb2c67915, 0xc67178f2, 0xe372532b,
-			0xca273ece, 0xea26619c, 0xd186b8c7, 0x21c0c207, 0xeada7dd6, 0xcde0eb1e, 0xf57d4f7f, 0xee6ed178,
-		    0x06f067aa, 0x72176fba, 0x0a637dc5, 0xa2c898a6, 0x113f9804, 0xbef90dae, 0x1b710b35, 0x131c471b,
-		    0x28db77f5, 0x23047d84, 0x32caab7b, 0x40c72493, 0x3c9ebe0a, 0x15c9bebc, 0x431d67c4, 0x9c100d4c,
-		    0x4cc5d4be, 0xcb3e42b6, 0x597f299c, 0xfc657e2a, 0x5fcb6fab, 0x3ad6faec, 0x6c44198c, 0x4a475817
+	// X と Y を hi/lo に分けて Matrix にセット
+	private static Matrix gf0_MATRIX= new Matrix((short)16,(short)4);
+	private static Matrix gf1_MATRIX= new Matrix((short)16,(short)4);
+	
+	private static short[] Kv = {
+			0x428a,0x2f98, (short) 0xd728,(short) 0xae22, 0x7137,0x4491, 0x23ef,0x65cd,
+			(short) 0xb5c0,(short)0xfbcf, (short)0xec4d,0x3b2f, (short) 0xe9b5,(short)0xdba5, (short) 0x8189,(short) 0xdbbc,
+			0x3956,(short)0xc25b, (short)0xf348,(short)0xb538, 0x59f1,0x11f1, (short)0xb605,(short)0xd019,
+			(short)0x923f,(short)0x82a4, (short)0xaf19,0x4f9b, (short)0xab1c,0x5ed5, (short)0xda6d,(short)0x8118,
+			(short)0xd807,(short)0xaa98, (short)0xa303,0x0242, 0x1283,0x5b01, 0x4570,0x6fbe,
+			0x2431,(short)0x85be, 0x4ee4,(short)0xb28c, 0x550c,0x7dc3, (short)0xd5ff,(short)0xb4e2,
+			0x72be,0x5d74, (short)0xf27b,(short)0x896f, (short)0x80de,(short)0xb1fe, 0x3b16,(short)0x96b1,
+			(short)0x9bdc,0x06a7, 0x25c7,0x1235, (short)0xc19b,(short)0xf174, (short)0xcf69,0x2694,
+			(short)0xe49b,0x69c1, (short)0x9ef1,0x4ad2, (short)0xefbe,0x4786, 0x384f,0x25e3,
+			0x0fc1,(short)0x9dc6, (short)0x8b8c,(short)0xd5b5, 0x240c,(short)0xa1cc, 0x77ac,(short)0x9c65,
+			0x2de9,0x2c6f, 0x592b,0x0275, 0x4a74,(short)0x84aa, 0x6ea6,(short)0xe483,
+			0x5cb0,(short)0xa9dc, (short)0xbd41,(short)0xfbd4, 0x76f9,(short)0x88da, (short)0x8311,0x53b5,
+			(short)0x983e,0x5152, (short)0xee66,(short)0xdfab, (short)0xa831,(short)0xc66d, 0x2db4,0x3210,
+			(short)0xb003,0x27c8, (short)0x98fb,0x213f, (short)0xbf59,0x7fc7, (short)0xbeef,0x0ee4,
+			(short)0xc6e0,0x0bf3, 0x3da8,(short)0x8fc2, (short)0xd5a7,(short)0x9147, (short)0x930a,(short)0xa725,
+			0x06ca,0x6351, (short)0xe003,(short)0x826f, 0x1429,0x2967, 0x0a0e,0x6e70,
+			0x27b7,0x0a85, 0x46d2,0x2ffc, 0x2e1b,0x2138, 0x5c26,(short)0xc926,
+			0x4d2c,0x6dfc, 0x5ac4,0x2aed, 0x5338,0x0d13, (short)0x9d95,(short)0xb3df,
+			0x650a,0x7354, (short)0x8baf,0x63de, 0x766a,0x0abb, 0x3c77,(short)0xb2a8,
+			(short)0x81c2,(short)0xc92e, 0x47ed,(short)0xaee6, (short)0x9272,0x2c85, 0x1482,0x353b,
+			(short)0xa2bf,(short)0xe8a1, 0x4cf1,0x0364, (short)0xa81a,0x664b, (short)0xbc42,0x3001,
+			(short)0xc24b,(short)0x8b70, (short)0xd0f8,(short)0x9791, (short)0xc76c,0x51a3, 0x0654,(short)0xbe30,
+			(short)0xd192,(short)0xe819, (short)0xd6ef,0x5218, (short)0xd699,0x0624, 0x5565,(short)0xa910,
+			(short)0xf40e,0x3585, 0x5771,0x202a, 0x106a,(short)0xa070, 0x32bb,(short)0xd1b8,
+			0x19a4,(short)0xc116, (short)0xb8d2,(short)0xd0c8, 0x1e37,0x6c08, 0x5141,(short)0xab53,
+			0x2748,0x774c, (short)0xdf8e,(short)0xeb99, 0x34b0,(short)0xbcb5, (short)0xe19b,0x48a8,
+			0x391c,0x0cb3, (short)0xc5c9,0x5a63, 0x4ed8,(short)0xaa4a, (short)0xe341,(short)0x8acb,
+			0x5b9c,(short)0xca4f, 0x7763,(short)0xe373, 0x682e,0x6ff3, (short)0xd6b2,(short)0xb8a3,
+			0x748f,(short)0x82ee, 0x5def,(short)0xb2fc, 0x78a5,0x636f, 0x4317,0x2f60,
+			(short)0x84c8,0x7814, (short)0xa1f0,(short)0xab72, (short)0x8cc7,0x0208, 0x1a64,0x39ec,
+			(short)0x90be,(short)0xfffa, 0x2363,0x1e28, (short)0xa450,0x6ceb, (short)0xde82,(short)0xbde9,
+			(short)0xbef9,(short)0xa3f7, (short)0xb2c6,0x7915, (short)0xc671,0x78f2, (short)0xe372,0x532b,
+			(short)0xca27,0x3ece, (short)0xea26,0x619c, (short)0xd186,(short)0xb8c7, 0x21c0,(short)0xc207,
+			(short)0xeada,0x7dd6, (short)0xcde0,(short)0xeb1e, (short)0xf57d,0x4f7f, (short)0xee6e,(short)0xd178,
+		    0x06f0,0x67aa, 0x7217,0x6fba, 0x0a63,0x7dc5, (short)0xa2c8,(short)0x98a6,
+		    0x113f,(short)0x9804, (short)0xbef9,0x0dae, 0x1b71,0x0b35, 0x131c,0x471b,
+		    0x28db,0x77f5, 0x2304,0x7d84, 0x32ca,(short)0xab7b, 0x40c7,0x2493,
+		    0x3c9e,(short)0xbe0a, 0x15c9,(short)0xbebc, 0x431d,0x67c4, (short)0x9c10,0x0d4c,
+		    0x4cc5,(short)0xd4be, (short)0xcb3e,0x42b6, 0x597f,0x299c, (short)0xfc65,0x7e2a,
+		    0x5fcb,0x6fab, 0x3ad6,(short)0xfaec, 0x6c44,0x198c, 0x4a47,0x5817
 	};
 	
 	// Matrixにセット
-	private static Matrix K;
+	private static Matrix K= new Matrix((short)80,(short)4);
 
-	static int[]zero_Matrix_16 = new int[(short)(16*2)];
-	static void dl64(byte[] x, int off, int[] out) {
-	    int hi = 0, lo = 0;
-	    for (short i=0;i<4;i++) hi = (hi << 8) | (x[(short)(off+i)] & 0xff);
-	    for (short i=4;i<8;i++) lo = (lo << 8) | (x[(short)(off+i)] & 0xff);
-	    out[0]=hi; out[1]=lo;
+	static void dl64(byte[] x, int off, short[] out) {
+		// 上位32bit
+	    int hi = 0;
+	    for (int i = 0; i < 4; i++) {
+	        hi = (hi << 8) | (x[off + i] & 0xFF);
+	    }
+	    // 下位32bit
+	    int lo = 0;
+	    for (int i = 4; i < 8; i++) {
+	        lo = (lo << 8) | (x[off + i] & 0xFF);
+	    }
+	    // 16bitごとに分割（ビッグエンディアン順）
+	    out[0] = (short)((hi >>> 16) & 0xFFFF); // hi-hi
+	    out[1] = (short)(hi & 0xFFFF);          // hi-lo
+	    out[2] = (short)((lo >>> 16) & 0xFFFF); // lo-hi
+	    out[3] = (short)(lo & 0xFFFF);          // lo-lo
 	}
 
 	static void ts64(byte[] x, int off, Matrix uMatrix) { 
-	    int[] uRow = new int[2];
+	    short[] uRow = new short[4];
 	    uMatrix.getRow((short)0, uRow);
 
-	    int hi = uRow[0];
-	    int lo = uRow[1];
+	    short hi1 = uRow[0];
+	    short hi2 = uRow[1];
+	    short lo1 = uRow[2];
+	    short lo2 = uRow[3];
 
 	    // リトルエンディアンで書き込み（オリジナルと同じ順）
-	    x[(short)(off+7)] = (byte)(lo & 0xff);
-	    x[(short)(off+6)] = (byte)((lo >>> 8) & 0xff);
-	    x[(short)(off+5)] = (byte)((lo >>> 16) & 0xff);
-	    x[(short)(off+4)] = (byte)((lo >>> 24) & 0xff);
-	    x[(short)(off+3)] = (byte)(hi & 0xff);
-	    x[(short)(off+2)] = (byte)((hi >>> 8) & 0xff);
-	    x[(short)(off+1)] = (byte)((hi >>> 16) & 0xff);
-	    x[(short)(off+0)] = (byte)((hi >>> 24) & 0xff);
+	    x[(short)(off+7)] = (byte)(lo2 & 0xff);
+	    x[(short)(off+6)] = (byte)((lo2 >>> 8) & 0xff);
+	    x[(short)(off+5)] = (byte)(lo1 & 0xff);
+	    x[(short)(off+4)] = (byte)((lo1 >>> 8) & 0xff);
+	    x[(short)(off+3)] = (byte)(hi2 & 0xff);
+	    x[(short)(off+2)] = (byte)((hi2 >>> 8) & 0xff);
+	    x[(short)(off+1)] = (byte)(hi1 & 0xff);
+	    x[(short)(off+0)] = (byte)((hi1 >>> 8) & 0xff);
 	}
-
-	//private static long R(long x,int c){ return (x >>> c) | (x << (64 - c)); }
 	
 	// x, y, z は hi/lo 2要素の int[]
-	static void Ch(int[] x, int[] y, int[] z, int[] out) {
-	    int[] nx = new int[2];
+	static void Ch(short[] x, short[] y, short[] z, short[] out) {
+	    short[] nx = new short[4];
 	    not64(x, nx); // ~x (hi/lo同時に反転)
 
-	    out[0] = (x[0] & y[0]) ^ (nx[0] & z[0]);
-	    out[1] = (x[1] & y[1]) ^ (nx[1] & z[1]);
+	    out[0] = (short)((x[0] & y[0]) ^ (nx[0] & z[0]));
+	    out[1] = (short)((x[1] & y[1]) ^ (nx[1] & z[1]));
+	    out[2] = (short)((x[2] & y[2]) ^ (nx[2] & z[2]));
+	    out[3] = (short)((x[3] & y[3]) ^ (nx[3] & z[3]));
 	}
 
-	static void not64(int[] x, int[] out) {
-	    out[0] = ~x[0];
-	    out[1] = ~x[1];
+	static void not64(short[] x, short[] out) {
+	    out[0] = (short)~x[0];
+	    out[1] = (short)~x[1];
+	    out[2] = (short)~x[2];
+	    out[3] = (short)~x[3];
 	}
-	static void Maj(int[] x, int[] y, int[] z, int[] out) {
-	    // hi
-	    out[0] = (x[0] & y[0]) ^ (x[0] & z[0]) ^ (y[0] & z[0]);
-	    // lo
-	    out[1] = (x[1] & y[1]) ^ (x[1] & z[1]) ^ (y[1] & z[1]);
+	static void Maj(short[] x, short[] y, short[] z, short[] out) {
+	    // hi1
+	    out[0] = (short)((x[0] & y[0]) ^ (x[0] & z[0]) ^ (y[0] & z[0]));
+	    // hi2
+	    out[1] = (short)((x[1] & y[1]) ^ (x[1] & z[1]) ^ (y[1] & z[1]));
+	    //lo1
+	    out[2] = (short)((x[2] & y[2]) ^ (x[2] & z[2]) ^ (y[2] & z[2]));
+	    //lo2
+	    out[3] = (short)((x[3] & y[3]) ^ (x[3] & z[3]) ^ (y[3] & z[3]));
 	}
 	
-	static void Sigma0(int[] x, int[] out) {
-	    int[] r28 = new int[2];
-	    int[] r34 = new int[2];
-	    int[] r39 = new int[2];
+	static void Sigma0(short[] x, short[] out) {
+	    short[] r28 = new short[4];
+	    short[] r34 = new short[4];
+	    short[] r39 = new short[4];
 
-	    UInt64.rotr(x, 28, r28);
-	    UInt64.rotr(x, 34, r34);
-	    UInt64.rotr(x, 39, r39);
+	    UInt64.rotr16(x, 28, r28);
+	    UInt64.rotr16(x, 34, r34);
+	    UInt64.rotr16(x, 39, r39);
 
-	    out[0] = r28[0] ^ r34[0] ^ r39[0];
-	    out[1] = r28[1] ^ r34[1] ^ r39[1];
+	    out[0] = (short)(r28[0] ^ r34[0] ^ r39[0]);
+	    out[1] = (short)(r28[1] ^ r34[1] ^ r39[1]);
+	    out[2] = (short)(r28[2] ^ r34[2] ^ r39[2]);
+	    out[3] = (short)(r28[3] ^ r34[3] ^ r39[3]);
 	}
-	static void Sigma1(int[] x, int[] out) {
-	    int[] r14 = new int[2];
-	    int[] r18 = new int[2];
-	    int[] r41 = new int[2];
+	static void Sigma1(short[] x, short[] out) {
+	    short[] r14 = new short[4];
+	    short[] r18 = new short[4];
+	    short[] r41 = new short[4];
 
-	    UInt64.rotr(x, 14, r14);
-	    UInt64.rotr(x, 18, r18);
-	    UInt64.rotr(x, 41, r41);
+	    UInt64.rotr16(x, 14, r14);
+	    UInt64.rotr16(x, 18, r18);
+	    UInt64.rotr16(x, 41, r41);
 
-	    out[0] = r14[0] ^ r18[0] ^ r41[0];
-	    out[1] = r14[1] ^ r18[1] ^ r41[1];
+	    out[0] = (short)(r14[0] ^ r18[0] ^ r41[0]);
+	    out[1] = (short)(r14[1] ^ r18[1] ^ r41[1]);
+	    out[2] = (short)(r14[2] ^ r18[2] ^ r41[2]);
+	    out[3] = (short)(r14[3] ^ r18[3] ^ r41[3]);
 	}
 	// σ0(x) = ROTR(x,1) ^ ROTR(x,8) ^ SHR(x,7)
-	static void sigma0(int[] x, int[] out) {
-	    int[] r1  = new int[2];
-	    int[] r8  = new int[2];
-	    int[] s7  = new int[2];
+	static void sigma0(short[] x, short[] out) {
+	    short[] r1  = new short[4];
+	    short[] r8  = new short[4];
+	    short[] s7  = new short[4];
 
-	    UInt64.rotr(x, 1, r1);
-	    UInt64.rotr(x, 8, r8);
-	    UInt64.shr(x, 7, s7);  // x >>> 7
+	    UInt64.rotr16(x, 1, r1);
+	    UInt64.rotr16(x, 8, r8);
+	    UInt64.shr16(x, 7, s7);  // x >>> 7
 
-	    out[0] = r1[0] ^ r8[0] ^ s7[0];
-	    out[1] = r1[1] ^ r8[1] ^ s7[1];
+	    out[0] = (short)(r1[0] ^ r8[0] ^ s7[0]);
+	    out[1] = (short)(r1[1] ^ r8[1] ^ s7[1]);
+	    out[2] = (short)(r1[2] ^ r8[2] ^ s7[2]);
+	    out[3] = (short)(r1[3] ^ r8[3] ^ s7[3]);
 	}
 
 	// σ1(x) = ROTR(x,19) ^ ROTR(x,61) ^ SHR(x,6)
-	static void sigma1(int[] x, int[] out) {
-	    int[] r19 = new int[2];
-	    int[] r61 = new int[2];
-	    int[] s6  = new int[2];
+	static void sigma1(short[] x, short[] out) {
+	    short[] r19 = new short[4];
+	    short[] r61 = new short[4];
+	    short[] s6  = new short[4];
 
-	    UInt64.rotr(x, 19, r19);
-	    UInt64.rotr(x, 61, r61);
-	    UInt64.shr(x, 6, s6);  // x >>> 6
+	    UInt64.rotr16(x, 19, r19);
+	    UInt64.rotr16(x, 61, r61);
+	    UInt64.shr16(x, 6, s6);  // x >>> 6
 
-	    out[0] = r19[0] ^ r61[0] ^ s6[0];
-	    out[1] = r19[1] ^ r61[1] ^ s6[1];
+	    out[0] = (short)(r19[0] ^ r61[0] ^ s6[0]);
+	    out[1] = (short)(r19[1] ^ r61[1] ^ s6[1]);
+	    out[2] = (short)(r19[2] ^ r61[2] ^ s6[2]);
+	    out[3] = (short)(r19[3] ^ r61[3] ^ s6[3]);
+	}
+	
+	void clear(short[] in){
+		for(short i=0; i<(short)(in.length);i++) {
+			in[i]=0;
+		}
+	}
+	void clear(int[] in){
+		for(short i=0; i<(short)(in.length);i++) {
+			in[i]=0;
+		}
 	}
 	
 	public TweetNacl() {
-		D2_MATRIX = new Matrix((short)16, (short)2,D2v);
-		X_MATRIX = new Matrix((short)16, (short)2,Xv);
-		Y_MATRIX = new Matrix((short)16, (short)2,Yv);
-		gf0_MATRIX = new Matrix((short)16, (short)2,gf0_v);
-		gf1_MATRIX = new Matrix((short)16, (short)2,gf1_v);
-		K = new Matrix((short)80, (short)2,Kv);
 		
+		for(short i =0; i<16*4; i++) {
+			D2_MATRIX.data[i] = D2v[i];
+			X_MATRIX.data[i] = Xv[i];
+			Y_MATRIX.data[i] = Yv[i];
+			gf0_MATRIX.data[i] = 0;
+			gf1_MATRIX.data[i] = 0;
+			if(i==1) {
+				gf1_MATRIX.data[i] = 1;
+			}
+		}
+		for(short i=0; i<80*4 ; i++) {
+			K.data[i]=Kv[i];
+		}
 	}
 	
+	
+	
 	//keyPair
+	
+	short rows = 16;   // limb 数
+	short cols = 4;    // hi/lo
+	Matrix p0 = new Matrix(rows, cols);
+	Matrix p1 = new Matrix(rows, cols);
+	Matrix p2 = new Matrix(rows, cols);
+	Matrix p3 = new Matrix(rows, cols);
 	public int  crypto_sign_keypair(byte [] pk, byte [] sk, boolean seeded) {
 		byte [] d = new byte[64];
-		short rows = 16;   // limb 数
-		short cols = 2;    // hi/lo
-		Matrix p0 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix p1 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix p2 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix p3 = new Matrix(rows, cols,zero_Matrix_16);
+		p0.clear();
+		p1.clear();
+		p2.clear();
+		p3.clear();
 		
 		Matrix[] pMatrices = new Matrix[4];
 		pMatrices[0] = p0;
@@ -310,27 +411,22 @@ public class TweetNacl {
 		pMatrices[2] = p2;
 		pMatrices[3] = p3;
 
-		// 初期化（必要なら 0 で埋める）
-		for (short i = 0; i < rows; i++) {
-		    int[] zero = new int[2]; // hi/lo
-		    zero[0] = 0; // lo
-		    zero[1] = 0; // hi
-		    p0.setRow(i, zero);
-		    p1.setRow(i, zero);
-		    p2.setRow(i, zero);
-		    p3.setRow(i, zero);
-		}
 
 		if (!seeded) RandomCompat(sk, (short)32);
-		crypto_hash(d, sk,0, 32, 32);	
+		crypto_hash(d, sk,0, 32, 32);
+		
+		
 		d[0] &= 248;
 		d[31] &= 127;
 		d[31] |= 64;
 		scalarbase(pMatrices, d,0,d.length);
+		
 		pack(pk, pMatrices);
 
 		for (short i = 0; i < 32; i++) sk[(short)(i+32)] = pk[i];
+		
 		return 0;
+		
 	}
 	
 	public static void RandomCompat(byte[] x, short len) {
@@ -344,19 +440,16 @@ public class TweetNacl {
 	
 	
 	//sign
-	public int crypto_sign(byte [] sm, short dummy /* *smlen not used*/, byte [] m, int/*long*/ n, byte [] sk)
+	Matrix x = new Matrix((short)64,(short)4);
+	public int crypto_sign(byte [] sm, short dummy, byte [] m, int n, byte [] sk)
 	{
 		byte[] d = new byte[64], h = new byte[64], r = new byte[64];
 
 		short i, j;
-		Matrix x = new Matrix((short)64,(short)2,new int[(short)(64*2)]);
-
-		short rows = 16;   // limb 数
-		short cols = 2;    // hi/lo
-		Matrix p0 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix p1 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix p2 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix p3 = new Matrix(rows, cols,zero_Matrix_16);
+		p0.clear();
+		p1.clear();
+		p2.clear();
+		p3.clear();
 		
 		Matrix[] pMatrices = new Matrix[4];
 		pMatrices[0] = p0;
@@ -364,16 +457,6 @@ public class TweetNacl {
 		pMatrices[2] = p2;
 		pMatrices[3] = p3;
 
-		// 初期化（必要なら 0 で埋める）
-		for (i = 0; i < rows; i++) {
-		    int[] zero = new int[2]; // hi/lo
-		    zero[0] = 0; // lo
-		    zero[1] = 0; // hi
-		    p0.setRow(i, zero);
-		    p1.setRow(i, zero);
-		    p2.setRow(i, zero);
-		    p3.setRow(i, zero);
-		}
 
 		crypto_hash(d, sk,0,sk.length, 32);
 		d[0] &= 248;
@@ -389,36 +472,41 @@ public class TweetNacl {
 		crypto_hash(r, sm,32,sm.length-32, n+32);
 		
 		reduce(r);
+		System.out.println("r:"+util.HexUtil.byteArrayToHexString(r));
+		
 		scalarbase(pMatrices, r,0,r.length);
 		pack(sm,pMatrices);
 
 		for (i = 0; i < 32; i ++) sm[(short)(i+32)] = sk[(short)(i+32)];
 		crypto_hash(h, sm,0,sm.length, n + 64);
 		reduce(h);
-
+		short[]xi  = new short[4];
 		for (i = 0; i < 64; i ++) {
-			int[]xi  = new int[2];
+			
 			x.getRow(i, xi);
 			xi[0] = 0;
 			xi[1] = 0;
+			xi[2] = 0;
+			xi[3] = 0;
 			x.setRow(i, xi);
 		}
 		
 		for (i = 0; i < 32; i ++) {
-			int[]xi  = new int[2];
 			x.getRow(i, xi);
-			xi[1] = r[i] & 0xff;  // 下位8bitをxi[0]に
+			xi[3] = (short)(r[i] & 0xff);  // 下位8bitをxi[0]に
+			xi[2] = 0;
+			xi[1] = 0;
 			xi[0] = 0;             // 上位16bitは0に
 			x.setRow((short)i, xi); // 必要ならMatrixに戻す
 		}
-		
+		short[] xij = new short[4];
 		for (i = 0; i < 32; i ++) {
 			for (j = 0; j < 32; j ++) {
 				int hi = 0;
 		        int lo = (h[i] & 0xff) * (d[j] & 0xff); // 0..65025なので32bit内に収まる
 		        int[] tmp = new int[] {hi, lo};
 
-		        int[] xij = new int[2];
+		        
 		        x.getRow((short)(i + j), xij);
 
 		        // hi/lo に分けて加算
@@ -436,16 +524,18 @@ public class TweetNacl {
 		return 0;
 
 	}
-	private static int crypto_hash(byte [] out, byte [] m,final int moff,final int mlen, int n)
+	
+	Matrix u = new Matrix((short)1,(short)4);
+	short[] uRow = new short[4];
+	private int crypto_hash(byte [] out, byte [] m,final int moff,final int mlen, int n)
 	{
 		byte[] h = new byte[64], x = new byte [256];
 		short i;
 		int b = n;
 		
 		for (i = 0; i < 64; i ++) h[i] = iv[i];
-
-		crypto_hashblocks(h, m,moff,mlen, n);
 		
+		crypto_hashblocks(h, m,moff,mlen, n);
 		///m += n;
 		n &= 127;
 		///m -= n;
@@ -461,20 +551,21 @@ public class TweetNacl {
 		// b >>> 61 は上位3bitだが n は小さいので hi = 0
 		x[(short)(n-9)] = 0;  // Java Cardではlongが使えないため0でOK
 
-		// ビット長を hi/lo に分ける（メッセージ長 b をビット単位に変換）
-		int bitlen_lo = b << 3;  // 下位32bit
-		int bitlen_hi = 0;       // 上位32bit（b << 3 < 2^32 なら0でOK）
+		// b: バイト数
+		int bitlen = b << 3;  // ここは32bitなので一旦intで計算
 
-		int[] uRow = new int[2];
-		uRow[0] = bitlen_hi;
-		uRow[1] = bitlen_lo;
+		short[] bitlen_parts = new short[4]; 
+		// [hi1, hi2, lo1, lo2] の順に格納
 
-		Matrix u = new Matrix((short)1,(short)2,new int[2]);
-		u.setRow((short)0, uRow);
+		bitlen_parts[0] = 0;                     // 上位48-63bit
+		bitlen_parts[1] = 0;                     // 上位32-47bit
+		bitlen_parts[2] = (short)((bitlen >>> 16) & 0xFFFF); // 中位16bit
+		bitlen_parts[3] = (short)(bitlen & 0xFFFF);          // 下位16bit
+				
+		u.setRow((short)0, bitlen_parts);
 
 		// ts64 でリトルエンディアン書き込み
 		ts64(x, n-8, u);
-		
 		crypto_hashblocks(h, x,0,x.length, n);
   		
 		
@@ -486,67 +577,74 @@ public class TweetNacl {
 	//suspicious
 	// TBD... long length n
 	///int crypto_hashblocks(byte [] x, byte [] m, long n)
-	private static int crypto_hashblocks(byte [] x, byte [] m,final int moff,final int mlen, int n)
+	Matrix z_8 = new Matrix((short)8, cols);
+	Matrix a_8 = new Matrix((short)8, cols);
+	Matrix b_8 = new Matrix((short)8, cols);
+	Matrix w = new Matrix((short)16, cols);
+	
+	short[] a0 = new short[cols];
+	short[] a1 = new short[cols];
+	short[] a2 = new short[cols];
+	short[] b3 = new short[cols];
+	short[] a4 = new short[cols];
+	short[] a5 = new short[cols];
+	short[] a6 = new short[cols];
+	short[] a7 = new short[cols];
+	
+	short[] b7 = new short[cols];
+	
+	short[] tmp1 = new short[cols];
+	short[] tmp2 = new short[cols];
+	short[] tmp3 = new short[cols];
+
+	
+	short[] K_i = new short[cols];
+	short[] w_i = new short[cols];
+	short[] t64   = new short[cols];
+	
+	short[] w_jm15 = new short[cols];  // w[j-15]
+    short[] w_jm2  = new short[cols];  // w[j-2]
+    short[] w_jm16 = new short[cols];  // w[j-16]
+    short[] w_jm7  = new short[cols];  // w[j-7]
+
+    short[] s0 = new short[cols];
+    short[] s1 = new short[cols];
+	
+	short[] wrow = new short[cols];
+	short[] a_i = new short[cols];
+	short[] z_i = new short[cols];
+	private int crypto_hashblocks(byte [] x, byte [] m,final int moff,final int mlen, int n)
 	{
-		short col = (short)2;
-			Matrix z = new Matrix((short)8, col,new int[16]);
-			Matrix a = new Matrix((short)8, col,new int[16]);
-			Matrix b = new Matrix((short)8, col,new int[16]);
-			Matrix w = new Matrix((short)16, col,zero_Matrix_16);
+
+			
+			clear(tmp1);
+			clear(tmp2);
+			clear(tmp3);
+			z_8.clear();
+			a_8.clear();
+			b_8.clear();
+			w.clear();
 			
 			
 			short i,j;
-			int[] tmp = new int[2];
+			
 			for ( i = 0; i < 8; i++) {
-			    dl64(x, (short)(8 * i), tmp);
-			    z.setRow(i, tmp);
-				a.setRow(i, tmp);
+			    dl64(x, (short)(8 * i), tmp1);
+			    z_8.setRow(i, tmp1);
+				a_8.setRow(i, tmp1);
 			}
-			
-			
-
 			int moffset = moff;
 			
 			
-			int[] a0 = new int[col];
-			int[] a1 = new int[col];
-			int[] a2 = new int[col];
-			int[] b3 = new int[col];
-			int[] a4 = new int[col];
-			int[] a5 = new int[col];
-			int[] a6 = new int[col];
-			int[] a7 = new int[col];
 			
-			int[] b7 = new int[col];
-			
-			int[] tmp1 = new int[col];
-			int[] tmp2 = new int[col];
-			int[] tmp3 = new int[col];
-			int[] tmp4 = new int[col];
-			int[] tmp5 = new int[col];
-			
-			int[] K_i = new int[col];
-			int[] w_i = new int[col];
-			int[] t64   = new int[col];
-			
-			int[] w_jm15 = new int[2];  // w[j-15]
-		    int[] w_jm2  = new int[2];  // w[j-2]
-		    int[] w_jm16 = new int[2];  // w[j-16]
-		    int[] w_jm7  = new int[2];  // w[j-7]
-
-		    int[] s0 = new int[2];
-		    int[] s1 = new int[2];
-			
-			int[] wrow = new int[col];
 			while (n >= 128) {
 				for (i = 0; i < 16; i++) {
 				    dl64(m, (short)(8 * i + moffset), wrow);
 				    w.setRow(i, wrow);
 				}
-				
 				for (i = 0; i < 80; i ++) {
 					for (j = 0; j < 8; j ++) {
-						b.copyRowFrom(j,j,a);  // b[j] = a[j]
+						b_8.copyRowFrom(j,j,a_8);  // b[j] = a[j]
 					}
 					
 					K.getRow(i, K_i);
@@ -561,32 +659,29 @@ public class TweetNacl {
 					    sigma0(w_jm15, s0);
 					    sigma1(w_jm2, s1);
 
-					    add64(w_jm16, s0, tmp);
-					    add64(tmp, w_jm7, tmp);
-					    add64(tmp, s1, tmp);
-
-					    w.setRow((short)(i % 16), tmp);
+					    add64(w_jm16, s0, tmp1);
+					    add64(tmp1, w_jm7, tmp1);
+					    add64(tmp1, s1, tmp1);
+					    w.setRow((short)(i % 16), tmp1);
 					}
-
 					// t = a[7] + Sigma1(a[4]) + Ch(a[4],a[5],a[6]) + K[i] + w[i%16];
-					a.getRow((short)4, a4);
-					a.getRow((short)5, a5);
-					a.getRow((short)6, a6);
-					a.getRow((short)7, a7);
+					a_8.getRow((short)4, a4);
+					a_8.getRow((short)5, a5);
+					a_8.getRow((short)6, a6);
+					a_8.getRow((short)7, a7);
 					w.getRow((short)(i % 16), w_i);
-
-				    
 				    Sigma1(a4, tmp1);        
 				    Ch(a4, a5, a6, tmp2); 
-				    add64(a7,tmp1,tmp3);      
-				    add64(tmp2,K_i, tmp4);
-				    add64(tmp3,tmp4,tmp5);
-				    add64(tmp5,w_i,t64);
+				    
+				    
+				    add64(a7,tmp1,tmp1);      
+				    add64(tmp2,K_i, tmp2);
+				    add64(tmp1,tmp2,tmp3);
+				    add64(tmp3,w_i,t64);
 					
-					
-					a.getRow((short)0, a0);
-					a.getRow((short)1, a1);
-					a.getRow((short)2, a2);					
+					a_8.getRow((short)0, a0);
+					a_8.getRow((short)1, a1);
+					a_8.getRow((short)2, a2);					
 
 					// b[7] = t + Sigma0(a[0]) + Maj(a[0],a[1],a[2]);
 					
@@ -596,35 +691,33 @@ public class TweetNacl {
 					// Maj(a[0], a[1], a[2])
 					Maj(a0, a1, a2, tmp2);
 					
-					b.getRow((short)7, b7);
+					b_8.getRow((short)7, b7);
 					
 					add64(t64, tmp1, tmp3);
 					add64(tmp3,tmp2,b7);
-					b.setRow((short)7, b7);
+					b_8.setRow((short)7, b7);
 					
 					//b[3] += t;
 					
-					b.getRow((short)3, b3);	
+					b_8.getRow((short)3, b3);	
 					add64(b3,t64,b3);
-					b.setRow((short)3,b3);
+					b_8.setRow((short)3,b3);
 					
 					
 					for (j = 0; j < 8; j ++) {
-						a.copyRowFrom((short)((j+1)%8),j, b);
+						a_8.copyRowFrom((short)((j+1)%8),j, b_8);
 						//a[i+j] = b[i]; => a.copyRowFrom(i+j,i,b);
 					}
 					
 				}
 				
-				int[] a_i = new int[2];
-				int[] z_i = new int[2];
 				for (i = 0; i < 8; i ++) {
-					a.getRow(i, a_i);
-					z.getRow(i, z_i);
-					add64(a_i,z_i,tmp);//a[i] +=z[i];
-					a.setRow(i, tmp);
+					a_8.getRow(i, a_i);
+					z_8.getRow(i, z_i);
+					add64(a_i,z_i,tmp1);//a[i] +=z[i];
+					a_8.setRow(i, tmp1);
 					//z[i] = a[i]
-					z.setRow(i,tmp);
+					z_8.setRow(i,tmp1);
 					
 				}
 
@@ -632,37 +725,36 @@ public class TweetNacl {
 				n -= 128;
 			}
 
-			int[] zi = new int[col];
+			
 			for (i = 0; i < 8; i ++) {
-				z.getRow(i, zi);
-				Matrix zr = new Matrix((short)1,(short)2,new int[2]);
-				zr.setRow((short)0, zi);
-				ts64(x,8*i, zr);
+				u.copyRowFrom((short)0,i, z_8);
+				ts64(x,8*i, u);
 			}
 			return n;
 	}
 	
-	private static void scalarbase(Matrix[] p, byte[] s,final int soff,final int slen)
+	// x + y -> out (64bit)
+		static void add64(short[] x, short[] y, short[] out) {
+			short carry = 0;
+
+		    for (short i = (short)(x.length - 1); i >= 0; i--) {
+		        int sum = (x[i] & 0xFFFF) + (y[i] & 0xFFFF) + carry;
+		        out[i] = (short)(sum & 0xFFFF);
+		        carry = (short)(sum >>> 16);
+		    }
+		}
+	
+	Matrix q0 = new Matrix(rows, cols);
+	Matrix q1 = new Matrix(rows, cols);
+	Matrix q2 = new Matrix(rows, cols);
+	Matrix q3 = new Matrix(rows, cols);
+	
+	private void scalarbase(Matrix[] p, byte[] s,final int soff,final int slen)
 	{
-		
-		short rows = 16;   // limb 数
-		short cols = 2;    // hi/lo
-		Matrix q0 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix q1 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix q2 = new Matrix(rows, cols,zero_Matrix_16);
-		Matrix q3 = new Matrix(rows, cols,zero_Matrix_16);
-		
-		// 初期化（必要なら 0 で埋める）
-				for (short i = 0; i < rows; i++) {
-				    int[] zero = new int[2]; // hi/lo
-				    zero[0] = 0; // lo
-				    zero[1] = 0; // hi
-				    q0.setRow(i, zero);
-				    q1.setRow(i, zero);
-				    q2.setRow(i, zero);
-				    q3.setRow(i, zero);
-				}
-		
+		q0.clear();
+		q1.clear();
+		q2.clear();
+		q3.clear();		
 		Matrix[] qMatrixes = new Matrix[4];
 		qMatrixes[0] = q0;
 		qMatrixes[1] = q1;
@@ -674,44 +766,44 @@ public class TweetNacl {
 		set25519_M(qMatrixes[1],Y_MATRIX);
 		set25519_M(qMatrixes[2],gf1_MATRIX);
 		M_Matrix_M(qMatrixes[3], X_MATRIX, Y_MATRIX);
-
+		
 		scalarmult(p,qMatrixes, s,soff,slen);
 		
 	}
 	
 	private static void set25519_M(Matrix r, Matrix a)
 	{
-		int[] tmp = new int[2];
 	    for (short i = 0; i < 16; i++) {
-	    		a.getRow(i, tmp);        // a の i 行を tmp に取得
-	        r.setRow(i, tmp);        // hi/lo をそのまま r の i 行にセット
+	        r.copyRowFrom(i,i,a);        // hi/lo をそのまま r の i 行にセット
 	    }
 	}
 		
-	private static void scalarmult(Matrix[] p, Matrix[] q, byte[] s,final int soff,final int slen)
+	private void scalarmult(Matrix[] p, Matrix[] q, byte[] s,final int soff,final int slen)
 	{
 		
 		set25519_M(p[0],gf0_MATRIX);
 		set25519_M(p[1],gf1_MATRIX);
 		set25519_M(p[2],gf1_MATRIX);
 		set25519_M(p[3],gf0_MATRIX);
+		
+		//printMatrix("gf1",gf1_MATRIX);
 
 		for (int i = 255;i >= 0;--i) {
 			byte b = (byte) ((s[(short)(i/8+soff)] >> (i&7))&1);
 			cswap(p,q,b);
+			
 			add(q,p);
-
 			add(p,p);
+
 			cswap(p,q,b);
+
 		}
-
-
 		///String dbgt = "";
 		///for (int dbg = 0; dbg < p.length; dbg ++) for (int dd = 0; dd < p[dbg].length; dd ++) dbgt += " "+p[dbg][dd];
 		///L/og.d(TAG, "scalarmult -> "+dbgt);
 	}
 	
-	private static void cswap(Matrix[] p, Matrix[] q, byte b)
+	private void cswap(Matrix[] p, Matrix[] q, byte b)
 	{
 
 		for (short i = 0; i < 4; i ++) {
@@ -720,20 +812,29 @@ public class TweetNacl {
 		}
 			
 	}
+	Matrix a = new Matrix(rows,cols);
+	Matrix b = new Matrix(rows,cols);
+	Matrix c = new Matrix(rows,cols);
+	Matrix d = new Matrix(rows,cols);
+	Matrix t = new Matrix(rows,cols);
+	Matrix e = new Matrix(rows,cols);
+	Matrix f = new Matrix(rows,cols);
+	Matrix g = new Matrix(rows,cols);
+	Matrix h = new Matrix(rows,cols);
 
-
-	private static void add(Matrix[] p, Matrix[] q)
+	private void add(Matrix[] p, Matrix[] q)
 	{
-		short col = (short)2;
-		Matrix a = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix b = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix c = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix d = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix t = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix e = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix f = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix g = new Matrix((short)16,col,zero_Matrix_16);
-		Matrix h = new Matrix((short)16,col,zero_Matrix_16);
+		
+		a.clear();
+		b.clear();
+		c.clear();
+		d.clear();
+		t.clear();
+		e.clear();
+		f.clear();
+		g.clear();
+		h.clear();
+		
 		
 		Matrix p0 = p[0];
 		Matrix p1 = p[1];
@@ -752,11 +853,15 @@ public class TweetNacl {
 		M_Matrix_M(a,a,t);
 
 		A_Matrix(b, p0, p1);
+
 		A_Matrix(t, q0, q1);
 		M_Matrix_M(b,b,t);
+
 		M_Matrix_M(c, p3, q3);
 		M_Matrix_M(c, c,  D2_MATRIX);
 		M_Matrix_M(d, p2, q2);
+		
+		
 		
 		A_Matrix(d, d, d);
 		Z_Matrix(e, b, a);
@@ -775,136 +880,141 @@ public class TweetNacl {
 	
 	
 	}
+	short[]ai = new short[4];
 	
+	short[]bi = new short[4];
+	
+	short[]oi = new short[4];
 	// o = a - b
-		private static void Z_Matrix(Matrix o, Matrix a, Matrix b) {
-			int[]ai = new int[2];
+		private void Z_Matrix(Matrix o, Matrix a, Matrix b) {
+			clear(ai);
+			clear(bi);
+			clear(oi);
 			
-			int[]bi = new int[2];
-			
-			int[]oi = new int[2];
-			
-			int[] borrow = new int[2]; // 下位の borrow を上位に渡す用
 			for (short i = 0; i < 16; i++) {
 			    a.getRow(i, ai);
 			    b.getRow(i, bi);
 
-			    // 下位 limb の減算
-			    diffWithBorrow32_8bit(ai[1], bi[1],0, borrow); // borrow[0] = 下位の結果、borrow[1] = 上位への借り
-			    oi[1] = borrow[0];
-
-			    // 上位 limb の減算
-			    diffWithBorrow32_8bit(ai[0], bi[0], borrow[1], borrow); // borrow[1] を受けて上位計算
-			    oi[0] = borrow[0];
-			o.setRow(i, oi);
+			    diffWithBorrow16(ai,bi,oi);
+			    o.setRow(i, oi);
 			}
 			
 		}
 		
-		public static void diffWithBorrow32_8bit(int a, int b, int borrow_in, int[] result) {
-		    int borrow = borrow_in;
-		    int res = 0;
+		public void diffWithBorrow16(short[] a, short[] b, short[] out) {
+			int borrow = 0;
 
-		    for (int k = 0; k < 4; k++) { // 下位から上位へ 8bit 単位で処理
-		        int shift = k * 8;
-		        int a_part = (a >>> shift) & 0xFF;
-		        int b_part = (b >>> shift) & 0xFF;
+		    for (short i = 3; i >= 0; i--) { // lo→hi の順
+		        int ai = a[i] & 0xFFFF;
+		        int bi = (b[i] & 0xFFFF) + borrow;
+		        int diff = ai - bi;
 
-		        int temp = a_part - b_part - borrow;
-		        if (temp < 0) {
-		            temp += 0x100; // 2^8
+		        if (diff < 0) {
+		            diff += 0x10000;
 		            borrow = 1;
 		        } else {
 		            borrow = 0;
 		        }
-
-		        res |= (temp & 0xFF) << shift;
+		        out[i] = (short)diff;
 		    }
-
-		    result[0] = res;
-		    result[1] = borrow; // 上位への borrow
 		}
 		
-		
-		
-			
 		// o = a + b
-		private static void A_Matrix(Matrix o, Matrix a, Matrix b) {
-			int[] ai = new int[2];
-		    int[] bi = new int[2];
-		    int[] oi = new int[2];
-
+		private void A_Matrix(Matrix o, Matrix a, Matrix b) {
+		    clear(ai);
+			clear(bi);
+			clear(oi);
 		    for (short i = 0; i < 16; i++) {
-		        a.getRow(i, ai);
-		        b.getRow(i, bi);
-		        // 下位 32bit を加算（符号付きキャリー対応）
-		        oi[1] = ai[1];                 // lo 初期値
-		        addSignedToRow(oi, bi[1]);     // lo に bi[1] を加算、必要なら hi に carry
+		    	a.getRow(i, ai);
+			    b.getRow(i, bi);
 
-		        // 上位 32bit を加算（符号付きキャリー対応）
-		        oi[0] = ai[0];                 // hi 初期値
-		        addSignedToRow(oi, bi[0]);     // hi に bi[0] を加算、必要なら hi に carry
-
-		        o.setRow(i, oi);
-		    }
-		        
-		        
+			    sumWithCarry16(ai,bi,oi);
+			    o.setRow(i, oi);
+		    }    
 		}
 	
+		public void sumWithCarry16(short[] a, short[] b, short[] out) {
+			int carry = 0;
+
+		    for (short i = 3; i >= 0; i--) { // lo → hi
+		        int sum = (a[i] & 0xFFFF) + (b[i] & 0xFFFF) + carry;
+		        if (sum >= 0x10000) {
+		            sum -= 0x10000;
+		            carry = 1;
+		        } else {
+		            carry = 0;
+		        }
+		        out[i] = (short)sum;
+		    }
+
+		}
 	
 	//sign
-	private static void reduce(byte [] r)
+		
+		Matrix x_64 = new Matrix((short)64,(short)4);	
+	private void reduce(byte [] r)
 	{
-		int[]zero_Matrix = new int[(short)(64*2)];
-		Matrix x = new Matrix((short)64,(short)2,zero_Matrix);
+		clear(tmp1);
 		short i;
-		int[]xi = new int[2];
 		
 		for (i = 0; i < 64; i ++) {
-			x.getRow(i, xi);
-			xi[1] = r[i] & 0xff;  // 下位8bitをxi[0]に
-			xi[0] = 0;             // 上位16bitは0に
-			x.setRow((short)i, xi); // 必要ならMatrixに戻す
+			tmp1[3] = (short)(r[i] & 0xff);  // 下位8bitをxi[0]に
+			tmp1[0] = 0;             // 上位16bitは0に
+			x_64.setRow((short)i, tmp1); // 必要ならMatrixに戻す
 		}
 		
 		for (i = 0; i < 64; i ++) r[i] = 0;
 		
-		modL(r,0,r.length, x);
+		modL(r,0,r.length, x_64);
 	}
 	
-	private static void modL(byte[] r,final int roff,final int rlen, Matrix x)
+	short[] xi = new short[4];
+	short[] xj = new short[4];
+	int[] carry = new int[2];
+	short[] tmp = new short[4];
+	private void modL(byte[] r,final int roff,final int rlen, Matrix x)
 	{
-		int[] carry = new int[2];
-		int i, j;
-		int[] xi = new int[2];
-		int[] xj = new int[2];
-		int tmp1,tmp2,tmp3,tmp4;
-		int[] tmp = new int[2];
-		int newHi,newLo;
+		clear(xi);
+		clear(xj);
+		clear(carry);
+		clear(tmp);
+		short i, j;
 		
+		int tmp1,tmp2,tmp3,tmp4;
+		
+		int newHi,newLo,lo_1,hi,lo;
+
 		for (i = 63;i >= 32;--i) {
 			carry[0] = 0;
 			carry[1] = 0;
 			x.getRow((short)i, xi);
-			for (j = i - 32;j < i - 12;++j) {
+			for (j = (short)(i - 32);j < i - 12;++j) {
 				x.getRow((short)j, xj);
+				lo_1 = ((xi[2] & 0xFFFF) << 16) | (xi[3] & 0xFFFF);
 				tmp1 = carry[1];
 				tmp2 = -16;
-				tmp3 = xi[1] * L[(short)(j - (i - 32))];
+				tmp3 = lo_1 * L[(short)(j - (i - 32))];
 				tmp4 = tmp2*tmp3;
 				addSignedToRow(xj, tmp1);
 				addSignedToRow(xj, tmp4);
+				
 				// (xj[1] + 128) >> 8 を hi/lo で表現する
 
 				// まず 128 を加える
 				tmp[0] = xj[0];
 				tmp[1] = xj[1];
+				tmp[2] = xj[2];
+				tmp[3] = xj[3];
 				addSignedToRow(tmp, 128);
 
-				// 2. 全体を 8bit 算術シフト
-				newHi = tmp[0] >> 8;  // 算術シフトで符号維持
-				newLo = ((tmp[0] << 24) | (tmp[1] >>> 8)) & 0xffffffff;
+				// 上位32bit = x[0] << 16 | x[1]
+			    hi = ((tmp[0] & 0xFFFF) << 16) | (tmp[1] & 0xFFFF);
+			    // 下位32bit = x[2] << 16 | x[3]
+			    lo = ((tmp[2] & 0xFFFF) << 16) | (tmp[3] & 0xFFFF);
 
+			    // 算術右シフト 8bit
+			    newHi = hi >> 8;                   // hi は符号拡張
+			    newLo = (lo >>> 8) | ((hi & 0xFF) << 24); // lo は hi 下位8bitを上位に詰める
 				
 				// carry に代入
 				carry[0] = newHi;
@@ -916,11 +1026,14 @@ public class TweetNacl {
 				addSignedToRow(xj,(neg[1]<<8));
 				
 				x.setRow((short)j, xj);
+				
 			}
 			x.getRow((short)j, xj);
 			addSignedToRow(xj,carry[1]);
 			
 			x.setRow((short)j, xj);
+			xi[3] = 0;
+			xi[2] = 0;
 			xi[1] = 0;
 			xi[0] = 0;
 			x.setRow((short)i, xi);
@@ -930,26 +1043,36 @@ public class TweetNacl {
 		
 		carry[0] = 0;
 		carry[1] = 0;
-		int[] x31 = new int[2];
+		short[] x31 = new short[4];
 		for (j = 0; j < 32; j ++) {
 			x.getRow((short)j, xj);
 			x.getRow((short)31, x31);
+			lo_1 = ((x31[2] & 0xFFFF) << 16) | (x31[3] & 0xFFFF);
 			tmp1 = carry[1];
-			tmp2 = -(x31[1] >> 4) * L[(short)j];
+			tmp2 = -(lo_1 >> 4) * L[(short)j];
 			addSignedToRow(xj,tmp1);
 			addSignedToRow(xj,tmp2);
 			
 			
-			// 2. 全体を 8bit 算術シフト
-			newHi = xj[0] >> 8;  // 算術シフトで符号維持
-			newLo = ((xj[0] << 24) | (xj[1] >>> 8)) & 0xffffffff;
+			// 上位32bit = x[0] << 16 | x[1]
+		    hi = ((xj[0] & 0xFFFF) << 16) | (xj[1] & 0xFFFF);
+		    // 下位32bit = x[2] << 16 | x[3]
+		    lo = ((xj[2] & 0xFFFF) << 16) | (xj[3] & 0xFFFF);
+
+		    // 算術右シフト 8bit
+		    newHi = hi >> 8;                   // hi は符号拡張
+		    newLo = (lo >>> 8) | ((hi & 0xFF) << 24); // lo は hi 下位8bitを上位に詰める
 			
 			// carry に代入
 			carry[0] = newHi;
 			carry[1] = newLo;
 
-			xj[1] &= 255;
+			
 			xj[0] = 0;
+			xj[1] = 0;
+			xj[2] = 0;
+			xj[3] &=0x00FF;
+			
 			x.setRow((short)j, xj);
 		}
 		
@@ -959,21 +1082,25 @@ public class TweetNacl {
 			addSignedToRow(xj,tmp1);
 			x.setRow((short)j, xj);
 		}
-		//dumpMatrix("x",x);
-		int[] xi1 = new int[2];
+		
+		short[] xi1 = new short[4];
 		for (i = 0; i < 32; i ++) {
 			x.getRow((short)i, xi);
 			x.getRow((short)(i+1), xi1);
 			
-			// 2. 全体を 8bit 算術シフト
-			newHi = xj[0] >> 8;  // 算術シフトで符号維持
-			newLo = ((xj[0] << 24) | (xj[1] >>> 8)) & 0xffffffff;
+			// 上位32bit = x[0] << 16 | x[1]
+		    hi = ((xi[0] & 0xFFFF) << 16) | (xi[1] & 0xFFFF);
+		    // 下位32bit = x[2] << 16 | x[3]
+		    lo = ((xi[2] & 0xFFFF) << 16) | (xi[3] & 0xFFFF);
 
-			// carry に代入
-			xi1[0] = newHi;
-			xi1[1] = newLo;
-		    r[(short)(i+roff)] = (byte) (xi[1] & 255);
-		    //x.setRow((short)(i+1), xi1);
+		    // 算術右シフト 8bit
+		    newHi = hi >> 8;                   // hi は符号拡張
+		    newLo = (lo >>> 8) | ((hi & 0xFF) << 24); // lo は hi 下位8bitを上位に詰める
+
+		    
+		    r[(short)(i+roff)] = (byte) (xi[3]& 255);
+		    
+		    
 		}
 	}
 	
@@ -985,12 +1112,15 @@ public class TweetNacl {
 		};
 	
 	//utility
-	private static void pack(byte [] r, Matrix[] p)
+	Matrix tx = new Matrix((short)16,(short)4);
+	Matrix ty = new Matrix((short)16,(short)4);
+	Matrix zi = new Matrix((short)16,(short)4);
+	
+	private void pack(byte [] r, Matrix[] p)
 	{
-
-		Matrix tx = new Matrix((short)16,(short)2,zero_Matrix_16);
-		Matrix ty = new Matrix((short)16,(short)2,zero_Matrix_16);
-		Matrix zi = new Matrix((short)16,(short)2,zero_Matrix_16);
+		tx.clear();
+		ty.clear();
+		zi.clear();
 		
 		inv25519_M(zi, p[2]); 
 
@@ -1002,18 +1132,18 @@ public class TweetNacl {
 		r[31] ^= par25519(tx) << 7;
 	}
 	
-	private static void inv25519_M(
+	
+	//Matrix c = new Matrix((short)16,(short)2,zero_Matrix_16);
+	private void inv25519_M(
 			Matrix o,
 			Matrix i)
 	{
-
-		Matrix c = new Matrix((short)16,(short)2,zero_Matrix_16);
+		c.clear();
+		
 		short a;
 		
 		for (a = 0; a < 16; a ++) {
-			int[] ia = new int[2];
-			i.getRow(a, ia);
-			c.setRow(a,ia);
+			c.copyRowFrom(a,a,i);
 		}
 		
 		for(a=253;a>=0;a--) {
@@ -1021,10 +1151,8 @@ public class TweetNacl {
 			if(a!=2&&a!=4) M_Matrix_M(c, c, i);
 		}
 		
-		for (a = 0; a < 16; a ++) {
-			int[] ca =new int[2]; 
-			c.getRow(a, ca);
-			o.setRow(a, ca);
+		for (a = 0; a < 16; a ++) { 
+			o.copyRowFrom(a,a,c);
 		}
 
 		///String dbgt = "";
@@ -1032,85 +1160,68 @@ public class TweetNacl {
 		///L/og.d(TAG, "inv25519 -> "+dbgt);
 	}
 	
-	private static void S(Matrix o,Matrix a)
+	private void S(Matrix o,Matrix a)
 	{
 		M_Matrix_M(o, a, a);
 	}
 
-	private static void M_Matrix_M(Matrix o, Matrix a, Matrix b) {
+    Matrix t_31 = new Matrix((short)31,cols); // 31 limb × 4
+	private void M_Matrix_M(Matrix o, Matrix a, Matrix b) {
 	    short i, j;
-	    int[] zero_Matrix = new int[(short)(31*2)];
-	    Matrix t = new Matrix((short)31,(short)2,zero_Matrix); // 31 limb × hi/lo
-	    int[] tmpMul = new int[2];
-
-	    // t を初期化
-	    for (i = 0; i < 31; i++) {
-	    		int[]ti = new int[2];    
-	    		t.getRow(i, ti);
-	    		t.setRow(i, new int[]{0,0});
-	    }
-
+	    t_31.clear();
+	    
+	    short[] tmpMul = new short[4];
+	    short[]ti = new short[4];   
+	    
 	    // 多倍長積算: t[i+j] += a[i]*b[j]
-	    int[]ai = new int[2];
-	    int[]bj = new int[2];
-	    int[]tij = new int[2];
+	    short[]ai = new short[4];
+	    short[]bj = new short[4];
+	    short[]tij = new short[4];
 	    for (i = 0; i < 16; i++) {
 	        a.getRow(i, ai);
 	        for (j = 0; j < 16; j++) {
 	        		b.getRow(j,bj);
-	        		t.getRow((short)(i+j), tij);
-	            mul64(ai, bj, tmpMul);            // tmpMul = a[i]*b[j] (hi/lo)  	            
+	        		t_31.getRow((short)(i+j), tij);
+	        		//System.out.printf("i=%02d,j=%02d\n", i,j);
+	            mul64(ai, bj, tmpMul);            // tmpMul = a[i]*b[j] (hi/lo) 
 	            add64(tij, tmpMul, tij);     // t[i+j] += tmpMul
-	            t.setRow((short)(i+j), tij);
+	            t_31.setRow((short)(i+j), tij);
 	        }
 	        
 	    }
-	    		//dumpMatrix("t",t);
-	    		int[] ti = new int[2];
-	    		int[] tiplus16 = new int[2];
+	    //printMatrix("t31",t_31);
+	    		short[] tiplus16 = new short[4];
 	    		// 上位 limb を下位 limb に還元: t[i] += 38*t[i+16]
 	    		
 	    for (i = 0; i < 15; i++) {
-	        t.getRow(i, ti);
-	        t.getRow((short)(i+16), tiplus16);
+	        t_31.getRow(i, ti);
+	        t_31.getRow((short)(i+16), tiplus16);
 
 	        mul64Const(tiplus16, 38, tmpMul);
+	        //System.out.printf("tmpMul:%04x %04x %04x %04x\n", tmpMul[0],tmpMul[1],tmpMul[2],tmpMul[3]);
 	        add64(ti, tmpMul, ti);
-	        t.setRow(i, ti);
+	        t_31.setRow(i, ti);
 	    }
-	    //dumpMatrix("t",t);
+	    //printMatrix("t31",t_31);
 	    // 結果を o にコピー（16 limb）
 	    for (i = 0; i < 16; i++) {
-	        o.copyRowFrom(i, i, t);
+	        o.copyRowFrom(i, i, t_31);
 	    }
-	    //dumpMatrix("o",o);
+	    //printMatrix("o",o);
 	    // hi/lo 繰り上がり処理
 	    car25519Matrix(o);
-	    //dumpMatrix("o",o);
+	    //printMatrix("o",o);
 	    car25519Matrix(o);
 	}
 	
-	// x + y -> out (64bit)
-	static void add64(int[] x, int[] y, int[] out) {
-	    int lo = x[1] + y[1];  // 下位32bitの加算（オーバーフローしてもOK）
-	    int carry = 0;
-
-	    // キャリー判定（下位のオーバーフローを判定）
-	    if (lessUnsigned(lo, x[1])) {
-	        carry = 1;
-	    }
-
-	    // 上位32bitにキャリーを加えて加算
-	    int hi = x[0] + y[0] + carry;
-
-	    out[0] = hi;  // hi
-	    out[1] = lo;  // lo
-	}
+	
 	
 	// a, b は 32bit int
-	private static void mul32to64(int a, int b, int[] out) {
-		int[] a8 = new int[4];
-	    int[] b8 = new int[4];
+	
+	int[] a8 = new int[4];
+    int[] b8 = new int[4];
+	private void mul32to64(int a, int b, int[] out) {
+		
 	    
 	    // 32bit を 8bit に分割
 	    for (short i = 0; i < 4; i++) {
@@ -1143,45 +1254,7 @@ public class TweetNacl {
 	    out[1] = hi; // hi
 	}
 
-	public static void sumWithCarry(int[] values, int[] carry) {
-		// バイト別に蓄積（lo0=最下位バイト, lo3=最上位バイト）
-	    int lo0 = 0, lo1 = 0, lo2 = 0, lo3 = 0;
-	    int hiCarry = 0; // 32bit より上のキャリーを蓄える（加算回数次第で大きくなる）
-
-	    for (int v : values) {
-	        // treat v as unsigned 32bit
-	        int b0 = v & 0xFF;
-	        int b1 = (v >>> 8) & 0xFF;
-	        int b2 = (v >>> 16) & 0xFF;
-	        int b3 = (v >>> 24) & 0xFF;
-
-	        // lowest byte
-	        int s0 = lo0 + b0;
-	        lo0 = s0 & 0xFF;
-	        int c0 = s0 >>> 8; // carry to next byte
-
-	        // next byte
-	        int s1 = lo1 + b1 + c0;
-	        lo1 = s1 & 0xFF;
-	        int c1 = s1 >>> 8;
-
-	        // next
-	        int s2 = lo2 + b2 + c1;
-	        lo2 = s2 & 0xFF;
-	        int c2 = s2 >>> 8;
-
-	        // top byte of 32-bit word
-	        int s3 = lo3 + b3 + c2;
-	        lo3 = s3 & 0xFF;
-	        int c3 = s3 >>> 8; // this is carry beyond 32 bits for this summand
-
-	        hiCarry += c3;
-	    }
-
-	    // 合成して返す
-	    carry[0] = (lo0) | (lo1 << 8) | (lo2 << 16) | (lo3 << 24);
-	    carry[1] = hiCarry; // 上位 32bit（ただし加算回数が多いと更に桁上がりする点に注意）
-	}
+	
 		
 	public static void sub16WithBorrow(int[] a, int[] b, int[] o) {
 	    // 下位16bit差
@@ -1197,37 +1270,36 @@ public class TweetNacl {
 	    // o[1] に上位32bitとして格納
 	    o[1] = (hiDiff << 16) | (a[1] - b[1] - borrow);
 	}
-	
-	private static void mul64(int[] ai, int[] bj, int[] out) {
+    // 部分積
+    int[] tmp1_in = new int[2];
+    int[] tmp2_in = new int[2];
+    int[] tmp3_in = new int[2];
+    int[] tmp4_in = new int[2];
+	private void mul64(short[] ai, short[] bj, short[] out) {
 		// 符号判定
 		boolean negA = ai[0] < 0; 
 		boolean negB = bj[0] < 0; 
 	    boolean negResult = negA ^ negB;
 	    
-	    int[] aAbs = new int[2];
-	    int[] bAbs = new int[2];
+	 // intで一時的に64bit値に組み立て
+        int[] aAbs = { ((ai[0] & 0xFFFF) << 16) | (ai[1] & 0xFFFF),((ai[2] & 0xFFFF) << 16) | (ai[3] & 0xFFFF)};
+        int[] bAbs = { ((bj[0] & 0xFFFF) << 16) | (bj[1] & 0xFFFF),((bj[2] & 0xFFFF) << 16) | (bj[3] & 0xFFFF)};
+	    //ここでint
+	    
 	    // 絶対値化 (aiAbs, bjAbs を int[2] で作る)
-	    abs64(ai, aAbs, negA);
-	    abs64(bj, bAbs, negB);
-	    
-	    // 部分積
-	    int[] tmp1 = new int[2];
-	    int[] tmp2 = new int[2];
-	    int[] tmp3 = new int[2];
-	    int[] tmp4 = new int[2];
+	    abs64(aAbs, aAbs, negA);
+	    abs64(bAbs, bAbs, negB);
 
-	    mul32to64(aAbs[1], bAbs[1], tmp1); // lo*lo
-	    mul32to64(aAbs[1], bAbs[0], tmp2); // lo*hi
-	    mul32to64(aAbs[0], bAbs[1], tmp3); // hi*lo
-	    mul32to64(aAbs[0], bAbs[0], tmp4); // hi*hi
-
-	    
+	    mul32to64(aAbs[1], bAbs[1], tmp1_in); // lo*lo
+	    mul32to64(aAbs[1], bAbs[0], tmp2_in); // lo*hi
+	    mul32to64(aAbs[0], bAbs[1], tmp3_in); // hi*lo
+	    mul32to64(aAbs[0], bAbs[0], tmp4_in); // hi*hi
 	    
 	    // 足し合わせて 128bit 中の下位 64bit を out にまとめる
-	    int[] row = new int[]{tmp1[1], tmp1[0]}; // hi,lo
-	    addSignedToRow(row, tmp2[0]);
-	    addSignedToRow(row, tmp3[0]);
-	    addSignedToRow(row, tmp2[1] + tmp3[1] + tmp4[0]);
+	    int[] row ={tmp1_in[1], tmp1_in[0]}; // hi,lo
+	    addSignedToRow_int(row, tmp2_in[0]);
+	    addSignedToRow_int(row, tmp3_in[0]);
+	    addSignedToRow_int(row, tmp2_in[1] + tmp3_in[1] + tmp4_in[0]);
 
 	    // 結果の符号調整
 	    if (negResult) {
@@ -1235,8 +1307,10 @@ public class TweetNacl {
 	        neg64(row, row);
 	    }
 
-	    out[0] = row[0]; // hi
-	    out[1] = row[1]; // lo
+	    out[0] = (short)(row[0] >>> 16);
+        out[1] = (short)(row[0] & 0xFFFF);
+        out[2] = (short)(row[1] >>> 16);
+        out[3] = (short)(row[1] & 0xFFFF);
 	    
 	}
 	
@@ -1246,6 +1320,7 @@ public class TweetNacl {
 	    } else {
 	        out[0] = in[0];
 	        out[1] = in[1];
+	        
 	    }
 	}
 	
@@ -1281,30 +1356,33 @@ public class TweetNacl {
 	// t[2] : 64bit 値 (t[0]=lo, t[1]=hi)
 	// c : 16bit 定数
 	// out[2] : 結果 (64bit)
-	private static void mul64Const(int[] t, int c, int[] out) {
+	//int[] tmp1 = new int[2];
+	//int[] tmp2 = new int[2];
+	private void mul64Const(short[] t, int c, short[] out) {
 		// 符号判定
 				boolean negT = t[0] < 0; 
 			    
-			    int[] tAbs = new int[2];
+			    int[] tAbs = { ((t[0] & 0xFFFF) << 16) | (t[1] & 0xFFFF),((t[2] & 0xFFFF) << 16) | (t[3] & 0xFFFF)};
 			    // 絶対値化 (aiAbs, bjAbs を int[2] で作る)
-			    abs64(t, tAbs, negT);
+			    abs64(tAbs, tAbs, negT);
+			    //System.out.printf("t: %08x,%08x\n", tAbs[0],tAbs[1]);
 			    
-			    
-		int[] tmp1 = new int[2];
-		int[] tmp2 = new int[2];
+		clear(tmp1_in);
+		clear(tmp2_in);
+		
 		
 		
 	    // 下位32bit * c
-	    mul32to64(c,tAbs[1], tmp1); // tmp1[0]=lo, tmp1[1]=hi
+	    mul32to64(c,tAbs[1], tmp1_in); // tmp1[0]=lo, tmp1[1]=hi
 	    // 上位32bit * c
-	    mul32to64(c,tAbs[0], tmp2); // tmp2[0]=lo, tmp2[1]=hi
+	    mul32to64(c,tAbs[0], tmp2_in); // tmp2[0]=lo, tmp2[1]=hi
 	    
 	    
 	    
 	    
 	 // 足し合わせて 128bit 中の下位 64bit を out にまとめる
-	    int[] row = new int[]{tmp1[1], tmp1[0]}; // hi,lo
-	    row[0] +=tmp2[0];
+	    int[] row = {tmp1_in[1], tmp1_in[0]}; // hi,lo
+	    row[0] +=tmp2_in[0];
 	    
 	 // 結果の符号調整
 	    if (negT) {
@@ -1312,71 +1390,17 @@ public class TweetNacl {
 	        neg64(row, row);
 	    }
 	    //System.out.printf("row : %08x %08x\n", row[0], row[1]);
-	    out[0] = row[0]; // hi
-	    out[1] = row[1]; // lo
+	    out[0] = (short)(row[0] >>> 16);
+        out[1] = (short)(row[0] & 0xFFFF);
+        out[2] = (short)(row[1] >>> 16);
+        out[3] = (short)(row[1] & 0xFFFF);
 	}
 	
-	// o: int[32] (16 limb × 2)
-	private static void car25519Matrix(Matrix o) {
-		int[] limb = new int[2];       // hi-lo
-	    int[] ol = new int[2];
-	    int[] out = new int[2];
-	    int c = 1;                     // キャリー初期値
-	    
-	    for (short i = 0; i < 16; i++) {
-	        o.getRow(i, limb);
-
-	        addSignedToRow(limb, 1 << 16);
-	        
-	       
-
-	        if (limb[0] == 0 || limb[0] == -1) {
-	            c = shiftRight16Small(limb[0], limb[1]);
-	        } else {
-	            c = shiftRight16Large(limb[0], limb[1]);
-	        }
-	        
-	        //System.out.printf("c: %08d\n",c);
-	        
-	        short lc = (short) ((i+1) * ((i<15) ? 1 : 0));
-	        
-	        
-	        
-	        int r = c-1+37*(c-1)*((i==15) ? 1 : 0);
-	        
-	        o.setRow(i, limb);
-	        o.getRow(lc, ol);
-	        int[]tmp = new int[2];
-	        o.getRow(lc, tmp);
-	        addSignedToRow(ol, r);
-	       
-	        o.setRow(lc, ol);
-
-	        o.getRow(i, out);
-
-	        int sub = c << 16;
-
-	        // 下位32bitで減算
-	        out[1] = out[1] - sub;
-	        
-	        
-	        // 上位32bitは固定
-	        out[0] = out[1]<0 ? -1:0;
-	        
-	        //System.out.printf("%08x %08x\n", out[0],out[1]);
-
-	        o.setRow(i, out);
-	    }
-	}
-	// 無符号比較（long 使えない環境用トリック）
-	private static boolean lessUnsigned(int x, int y) {
-	    return (x ^ 0x80000000) < (y ^ 0x80000000);
-	}
 	/**
 	 * row = {hi, lo} に signed int add を行う（lo += add、発生したキャリー/借りを hi に反映）
 	 *  long 不使用。add は符号付きでよい（正／負どちらでも可）。
 	 */
-	private static void addSignedToRow(int[] row, int add) {
+	private void addSignedToRow_int(int[] row, int add) {
 		int oldLo = row[1];
 	    int newLo = oldLo + add;
 
@@ -1393,31 +1417,92 @@ public class TweetNacl {
 	    row[0] += carry;
 	}
 	
-	
-	
-	private static int shiftRight16Large(int hi, int lo) {
-	    int hiPart = hi & 0xFFFF;
-	    int loPart = (lo >>> 16) & 0xFFFF;
-	    return (hiPart << 16) | loPart;
-	}
-	
-	private static int shiftRight16Small(int hi, int lo) {
-	    int result = (lo >>> 16) & 0xFFFF;
-	    if (hi == -1) {
-	        result |= 0xFFFF0000; // 負数なら符号拡張
+	// o: int[32] (16 limb × 2)
+	short[] limb = new short[4];       // hi-lo
+    short[] ol = new short[4];
+	private void car25519Matrix(Matrix o) {
+	    int c = 1;  
+
+	    for (short i = 0; i < 16; i++) {
+	        o.getRow(i, limb);
+
+	        // 下位16bitから順に足す
+	        addSignedToRow(limb,1<<16);
+	        
+	        
+	        // 次の limb にキャリーを伝播
+	         c= ((limb[1]& 0xFFFF) <<16)|(limb[2]& 0xFFFF); 
+	        
+	        // System.out.printf("c: %08x\n",c);
+	        short lc = (short) ((i+1) * ((i<15) ? 1 : 0));
+	        
+	        o.getRow(lc, ol);
+	        
+	        int r = c-1+37*(c-1)*((i==15) ? 1 : 0);
+	        // next limb に加算
+	        addSignedToRow(ol, r);
+	        //System.out.printf("limb:%04x %04x %04x %04x\n", ol[0],ol[1],ol[2],ol[3]);
+	        o.setRow(i, limb);
+	        o.setRow(lc, ol);
+
+	        o.getRow(i, limb);
+
+	        int sub = c << 16;
+	        addSignedToRow(limb, -sub);
+	        
+	     // 上位32bitは固定
+	        limb[0] = limb[2]<0 ? (short)-1:0;
+	        limb[1] = limb[0];
+
+	        o.setRow(i, limb);
 	    }
-	    return result;
+	}
+	// 無符号比較（long 使えない環境用トリック）
+	private static boolean lessUnsigned(int x, int y) {
+	    return (x ^ 0x80000000) < (y ^ 0x80000000);
+	}
+
+	private void addSignedToRow(short[] row, int add) {
+	    int carry = 0;
+
+	    // 下位32bit（row[2], row[3]）を int にまとめる
+	    int lo = ((row[2] & 0xFFFF) << 16) | (row[3] & 0xFFFF);
+	    int newLo = lo + add;
+
+	    // 32bit内のキャリー判定（符号なし比較）
+	    if (add >= 0 && lessUnsigned(newLo, lo)) {
+	        carry = 1;    // オーバーフロー
+	    } else if (add < 0 && lessUnsigned(lo, newLo)) {
+	        carry = -1;   // アンダーフロー
+	    }
+
+	    // 更新：下位32bitを short[2] に戻す
+	    row[2] = (short) (newLo >>> 16);
+	    row[3] = (short) newLo;
+
+	    // 上位32bit（row[0], row[1]）に carry 反映
+	    int hi = ((row[0] & 0xFFFF) << 16) | (row[1] & 0xFFFF);
+	    hi += carry;
+	    row[0] = (short) (hi >>> 16);
+	    row[1] = (short) hi;
 	}
 	
-	private static void pack25519_M(byte [] o, Matrix n)
+	
+	short[]t0 = new short[4]; 
+	short[]m14 = new short[4]; 
+	short[]t15 = new short[4];
+    short[] mi = new short[4];      // m の i 行
+    short[] mi_1 = new short[4];    // m の i-1 行
+    short[] ti = new short[4];      // t の i 行
+    //Matrix m = new Matrix((short)16,(short)2,zero_Matrix_16);
+    //Matrix t = new Matrix((short)16,(short)2,zero_Matrix_16);
+	private void pack25519_M(byte [] o, Matrix n)
 	{
-		short i,b;
-		Matrix m = new Matrix((short)16,(short)2,zero_Matrix_16), t = new Matrix((short)16,(short)2,zero_Matrix_16);
-		
+		short i,b_s;
+		a.clear(); //m
+		t.clear(); //t
 		for (i = 0; i < 16; i ++) {
-			int[]ni = new int[2];
-			n.getRow(i, ni);
-			t.setRow(i, ni);
+			t.copyRowFrom(i,i,n);
 		}
 
 		car25519Matrix(t);
@@ -1427,24 +1512,21 @@ public class TweetNacl {
 		
 		for(short j = 0; j<2; j++) {
 			
-			int[]t0 = new int[2]; 
 			t.getRow((short)0,t0);
-			int[]m14 = new int[2]; 
-			m.getRow((short)14,m14);
-			int[]t15 = new int[2];
+			
+			a.getRow((short)14,m14);
+			
 			t.getRow((short)15,t15);
 			//System.out.printf("t0: %08x %08x\n", t0[0],t0[1]);
 			addSignedToRow(t0, -0xffed);
 			//System.out.printf("m0: %08x %08x\n", t0[0],t0[1]);
-			m.setRow((short)0, t0);
+			a.setRow((short)0, t0);
 			
 			for(i = 1; i < 15; i++) {
-			    int[] mi = new int[2];      // m の i 行
-			    int[] mi_1 = new int[2];    // m の i-1 行
-			    int[] ti = new int[2];      // t の i 行
+	
 
-			    m.getRow(i, mi);
-			    m.getRow((short)(i-1), mi_1);
+			    a.getRow(i, mi);
+			    a.getRow((short)(i-1), mi_1);
 			    t.getRow(i, ti);
 
 			    // ti - 0xffff - ((mi_1 >> 16)&1) を diffWithBorrow で計算
@@ -1452,38 +1534,38 @@ public class TweetNacl {
 			    addSignedToRow(ti, -((mi_1[1] >>> 16) & 1));
 
 			    // 計算結果を m の i 行に格納
-			    m.setRow((short)i, ti);
+			    a.setRow((short)i, ti);
 
 			    // mi_1 の下位 limb をマスク
 			    mi_1[1] &= 0xFFFF;
 			    mi_1[0] = 0;
-			    m.setRow((short)(i-1), mi_1);
+			    a.setRow((short)(i-1), mi_1);
 			    
 			}
-			m.getRow((short)14,m14);
+			a.getRow((short)14,m14);
 			addSignedToRow(t15, -0x7fff);
 			addSignedToRow(t15, -((m14[1] >>> 16) & 1));
 
-			m.setRow((short)15, t15);
+			a.setRow((short)15, t15);
 			m14[1] &= 0xFFFF;  // 下位 limb をマスク
 			m14[0] = 0;  // 下位 limb をマスク
-			m.setRow((short)14, m14);
+			a.setRow((short)14, m14);
 			
 			// 最終 borrow フラグ
-			b = (short)((t15[0] >>> 16) & 1);
+			b_s = (short)((t15[0] >>> 16) & 1);
 			
 			//dumpMatrix("t",t);
 			//dumpMatrix("m",m);
-				sel25519Matrix(t, m, 1-b);
+				sel25519Matrix(t, a, (short)(1-b_s));
 				//dumpMatrix("m",m);
 				//dumpMatrix("t",t);
 		}
 		//System.out.println("-----");
 		for (i = 0; i < 16; i ++) {
-			int[] ti = new int[2];
+			
 			t.getRow(i, ti);
-			o[(short)(2*i)]=(byte) (ti[1]&0xff);
-			o[(short)(2*i+1)]=(byte) (ti[1] >> 8);
+			o[(short)(2*i)]=(byte) (ti[3]&0xff);
+			o[(short)(2*i+1)]=(byte) (ti[3] >> 8);
 		}
 		
 		///String dbgt = "";
@@ -1492,37 +1574,33 @@ public class TweetNacl {
 	}
 	// pRow, qRow: int[32] (16 limb × hi-lo)
 		// b: 0 または 1
-		private static void sel25519Matrix(Matrix pRow, Matrix qRow, int b) {
+
+		private void sel25519Matrix(Matrix pRow, Matrix qRow, short b) {
 			
 			int mask = -b;  //b=0;do nothing, b=1;swap;
 			
 			
 
 		    for (short i = 0; i < 16; i++) {
-		        int[] pVals = new int[2];
-		        int[] qVals = new int[2];
-
+		        
 		        // 行を取得
-		        pRow.getRow(i, pVals);
-		        qRow.getRow(i, qVals);
+		        pRow.getRow(i, tmp1);
+		        qRow.getRow(i, tmp2);
 
-		     // 下位32bit (lo) XOR、符号なしマスク
-		        int t_lo = mask & ((pVals[1] ^ qVals[1]) & 0xFFFFFFFF);
-		        pVals[1] ^= t_lo;
-		        qVals[1] ^= t_lo;
-
-		        // 上位32bit (hi) XOR、符号なしマスク
-		        int t_hi = mask & ((pVals[0] ^ qVals[0]) & 0xFFFFFFFF);
-		        pVals[0] ^= t_hi;
-		        qVals[0] ^= t_hi;
+		        for(short j=0; j<4;j++) {
+		        		short t = (short)(mask & ((tmp1[j] ^ tmp2[j]) & 0xFFFF));
+		        		tmp1[j] ^= t;
+				    tmp2[j] ^= t;
+		        	
+		        }
 		        
 		        // 計算結果を戻す
-		        pRow.setRow(i, pVals);
-		        qRow.setRow(i, qVals);
+		        pRow.setRow(i, tmp1);
+		        qRow.setRow(i, tmp2);
 		    }
 		}
 		
-		private static byte par25519(Matrix a)
+		private byte par25519(Matrix a)
 		{
 			byte[] d = new byte[32];
 			
@@ -1530,5 +1608,17 @@ public class TweetNacl {
 			
 			return (byte) (d[0]&1);
 		}
-	
+		
+		static void printMatrix(String st,Matrix x) {
+			short[] xi = new short[4];
+			System.out.printf("===== %s =====\n",st);
+			for(short i= 0; i<(short)(x.defrow) ; i++) {
+				x.getRow(i,xi);
+				long combine = ((long)(xi[0] & 0xFFFF) << 48) |
+			               ((long)(xi[1] & 0xFFFF) << 32) |
+			               ((long)(xi[2] & 0xFFFF) << 16) |
+			               ((long)(xi[3] & 0xFFFF));
+				System.out.printf("Row %02d: %016x \n", i, combine);
+			}
+		}
 }
