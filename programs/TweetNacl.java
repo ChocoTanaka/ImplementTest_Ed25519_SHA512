@@ -472,47 +472,37 @@ public class TweetNacl {
 		crypto_hash(r, sm,32,sm.length-32, n+32);
 		
 		reduce(r);
-		System.out.println("r:"+util.HexUtil.byteArrayToHexString(r));
 		
 		scalarbase(pMatrices, r,0,r.length);
 		pack(sm,pMatrices);
-
+		
 		for (i = 0; i < 32; i ++) sm[(short)(i+32)] = sk[(short)(i+32)];
 		crypto_hash(h, sm,0,sm.length, n + 64);
+		System.out.println("h:"+util.HexUtil.byteArrayToHexString(h));
 		reduce(h);
-		short[]xi  = new short[4];
-		for (i = 0; i < 64; i ++) {
-			
-			x.getRow(i, xi);
-			xi[0] = 0;
-			xi[1] = 0;
-			xi[2] = 0;
-			xi[3] = 0;
-			x.setRow(i, xi);
-		}
+		System.out.println("h:"+util.HexUtil.byteArrayToHexString(h));
+		
+		x.clear();
 		
 		for (i = 0; i < 32; i ++) {
 			x.getRow(i, xi);
 			xi[3] = (short)(r[i] & 0xff);  // 下位8bitをxi[0]に
-			xi[2] = 0;
-			xi[1] = 0;
-			xi[0] = 0;             // 上位16bitは0に
+
 			x.setRow((short)i, xi); // 必要ならMatrixに戻す
 		}
+		//printMatrix("x",x);
+		
 		short[] xij = new short[4];
 		for (i = 0; i < 32; i ++) {
 			for (j = 0; j < 32; j ++) {
-				int hi = 0;
 		        int lo = (h[i] & 0xff) * (d[j] & 0xff); // 0..65025なので32bit内に収まる
-		        int[] tmp = new int[] {hi, lo};
-
+		        	//System.out.printf("lo: %08x\n", lo);
 		        
 		        x.getRow((short)(i + j), xij);
 
 		        // hi/lo に分けて加算
-		        addSignedToRow(xij, tmp[1]); // lo の加算、hi に桁上がり反映
+		        addSignedToRow(xij, lo); // lo の加算、hi に桁上がり反映
 		        // 必要なら hi も加算
-		        xij[0] += tmp[0];
 
 		        x.setRow((short)(i + j), xij);
 			}
@@ -1028,19 +1018,17 @@ public class TweetNacl {
 				x.setRow((short)j, xj);
 				
 			}
+			
 			x.getRow((short)j, xj);
 			addSignedToRow(xj,carry[1]);
 			
 			x.setRow((short)j, xj);
-			xi[3] = 0;
-			xi[2] = 0;
-			xi[1] = 0;
-			xi[0] = 0;
+			clear(xi);
 			x.setRow((short)i, xi);
 			
 			
 		}
-		
+		//printMatrix("x",x);
 		carry[0] = 0;
 		carry[1] = 0;
 		short[] x31 = new short[4];
@@ -1075,14 +1063,14 @@ public class TweetNacl {
 			
 			x.setRow((short)j, xj);
 		}
-		
+		//printMatrix("x",x);
 		for (j = 0; j < 32; j ++) {
 			x.getRow((short)j, xj);
 			tmp1 = -carry[1] * L[(short)j];
 			addSignedToRow(xj,tmp1);
 			x.setRow((short)j, xj);
 		}
-		
+		//printMatrix("x",x);
 		short[] xi1 = new short[4];
 		for (i = 0; i < 32; i ++) {
 			x.getRow((short)i, xi);
@@ -1097,10 +1085,11 @@ public class TweetNacl {
 		    newHi = hi >> 8;                   // hi は符号拡張
 		    newLo = (lo >>> 8) | ((hi & 0xFF) << 24); // lo は hi 下位8bitを上位に詰める
 
+		    addSignedToRow(xi1,newLo);
 		    
 		    r[(short)(i+roff)] = (byte) (xi[3]& 255);
 		    
-		    
+		    x.setRow((short)(i+1), xi1);
 		}
 	}
 	
