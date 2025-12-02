@@ -4,7 +4,7 @@ public class TestSighner2 {
 
 	public static void main(String[] args) {
 		
-		int num = 3;
+		int num = 1;
 		
 		String privstr =   teststr.PriKey[num];
 		byte[] privKey = util.HexUtil.hexStringToByteArray(privstr);
@@ -26,14 +26,14 @@ public class TestSighner2 {
 		// --- キーペア生成 ---
         byte[] sk = new byte[64]; // Secret key: 前半32バイトがprivate、後半32バイトがpublic
         System.arraycopy(privKey, 0, sk, 0, 32);
-
-        byte[] pk = new byte[32]; // Public key
-        Nacl.crypto_sign_keypair(pk, sk, true);
+        System.arraycopy(pubKey, 0, sk, 32, 32);
+        //byte[] pk = new byte[32]; // Public key
+        //Nacl.crypto_sign_keypair(pk, sk, true);
 
      // --- 公開鍵チェック ---
-        System.out.println("Generated Public Key: " +util.HexUtil.byteArrayToHexString(pk));
-        System.out.println("Matches expected? " + java.util.Arrays.equals(pk, pubKey));
-        
+        //System.out.println("Generated Public Key: " +util.HexUtil.byteArrayToHexString(pk));
+        //System.out.println("Matches expected? " + java.util.Arrays.equals(pk, pubKey));
+            
         byte[] signed = new byte[64 + messageBuffer.length]; // 署名 + データ
         Nacl.crypto_sign(signed, (short)0, messageBuffer, messageBuffer.length, sk);
 
